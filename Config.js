@@ -48,29 +48,29 @@ function Config()
     ];
 
     this.reelVideos = [
-        {src:["images/videos/00-0.json"], fps: 20},
-        {src:["images/videos/01-0.json"], fps: 20},
-        {src:["images/videos/02-0.json", "images/videos/02-1.json"], fps: 20},
-        {src:["images/videos/03-0.json", "images/videos/03-1.json"], fps: 18},
-        {src:["images/videos/04-0.json"], fps: 20},
-        {src:["images/videos/05-0.json", "images/videos/05-1.json","images/videos/05-2.json"], fps: 20},
-        {src:["images/videos/06-0.json", "images/videos/06-1.json"], fps: 20},
-        {src:["images/videos/07-0.json","images/videos/07-1.json"], fps: 20},
-        {src:["images/videos/08-0.json", "images/videos/08-1.json", "images/videos/08-2.json"], fps: 20},
-        {src:["images/videos/09-0.json"], fps: 20},
-        {src:["images/videos/10-0.json", "images/videos/10-1.json"], fps: 20},
+        {src:["assets/images/videos/00-0.json"], fps: 20},
+        {src:["assets/images/videos/01-0.json"], fps: 20},
+        {src:["assets/images/videos/02-0.json", "assets/images/videos/02-1.json"], fps: 20},
+        {src:["assets/images/videos/03-0.json", "assets/images/videos/03-1.json"], fps: 18},
+        {src:["assets/images/videos/04-0.json"], fps: 20},
+        {src:["assets/images/videos/05-0.json", "assets/images/videos/05-1.json","assets/images/videos/05-2.json"], fps: 20},
+        {src:["assets/images/videos/06-0.json", "assets/images/videos/06-1.json"], fps: 20},
+        {src:["assets/images/videos/07-0.json","assets/images/videos/07-1.json"], fps: 20},
+        {src:["assets/images/videos/08-0.json", "assets/images/videos/08-1.json", "assets/images/videos/08-2.json"], fps: 20},
+        {src:["assets/images/videos/09-0.json"], fps: 20},
+        {src:["assets/images/videos/10-0.json", "assets/images/videos/10-1.json"], fps: 20},
         null,
         null,
         null,
         null,
         null,
-        {src:["images/videos/16-0.json","images/videos/16-1.json"], fps: 10},
-        {src:["images/videos/17-0.json","images/videos/17-1.json"], fps: 10},
-        {src:["images/videos/18-0.json","images/videos/18-1.json"], fps: 10},
+        {src:["assets/images/videos/16-0.json","assets/images/videos/16-1.json"], fps: 10},
+        {src:["assets/images/videos/17-0.json","assets/images/videos/17-1.json"], fps: 10},
+        {src:["assets/images/videos/18-0.json","assets/images/videos/18-1.json"], fps: 10},
     ];
 
 
-    this.reelImages = ["reelImages.json"];
+    this.reelImages = ["assets/images/reelImages.json"];
 
     this.linesCoords = [
         {coords:[184,320, 1095,320], color:0xfff221},
@@ -106,7 +106,7 @@ function Config()
 
     this.gameSounds = [
         {
-            src:  "shortSounds.mp3", sounds:[
+            src:  "assets/sounds/shortSounds.mp3", sounds:[
             {name: "reelAccelerateSound", 		    start:9, 	duration: 2.04},
             {name: "stopScatterSound3", 			start:12, 	duration: 0.862},
             {name: "stopScatterSound4", 			start:13, 	duration: 0.78},
@@ -118,7 +118,7 @@ function Config()
             ]
         },
         {
-            src: "winSounds.mp3", sounds:[
+            src: "assets/sounds/winSounds.mp3", sounds:[
             {name: "win0", 					    start:0, 	duration: 4.25},
             {name: "win1", 						start:5, 	duration: 3.145},
             {name: "win2", 				        start:9, 	duration: 5.14},
@@ -135,7 +135,7 @@ function Config()
 
     this.freespinSounds = [
         {
-            src: "freespinSounds.mp3",
+            src: "assets/sounds/freespinSounds.mp3",
             id: "freespinSounds",
             sounds:[
                 {name: "pressStartSound", 				start:0, 	duration: 8.032},

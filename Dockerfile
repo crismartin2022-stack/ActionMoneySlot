@@ -1,21 +1,20 @@
-# Usamos una imagen oficial de Node.js
+# Usamos una imagen oficial de Node.js 18
 FROM node:18-alpine
 
-# Establecemos el directorio de trabajo en el contenedor
+# Creamos el directorio de trabajo
 WORKDIR /app
 
-# Copiamos el package.json primero para aprovechar el caché de Docker
+# Copiamos el package.json primero
 COPY package.json ./
 
 # Instalamos las dependencias
-RUN npm install
+RUN npm install --omit=dev
 
-# Copiamos el resto de los archivos de nuestro proyecto
+# Copiamos todo el resto del proyecto
 COPY . .
 
-# Exponemos el puerto 8080 (aunque Railway se encargará de redirigir)
+# Expone el puerto 8080
 EXPOSE 8080
 
-# El comando más importante: Iniciamos el servidor directamente con node
-# y nos aseguramos de que escuche en 0.0.0.0 (todas las interfaces de red)
-CMD ["node", "node_modules/http-server/bin/http-server", "-p", "8080", "-c-1", "-a", "0.0.0.0"]
+# Ejecuta el servidor
+CMD ["npm", "start"]

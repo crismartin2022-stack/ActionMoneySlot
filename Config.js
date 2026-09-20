@@ -1,3 +1,8 @@
+var com = window.com || {};
+com.egt = com.egt || {};
+com.egt.baseslot = com.egt.baseslot || {};
+com.egt.cascadeslot = com.egt.cascadeslot || {};
+
 function Config()
 {
     this.reelWidth = 172 ;
@@ -48,25 +53,25 @@ function Config()
     ];
 
     this.reelVideos = [
-    {src:["assets/images/videos/00-0.json"], fps: 20},
-    {src:["assets/images/videos/01-0.json"], fps: 20},
-    {src:["assets/images/videos/02-0.json", "assets/images/videos/02-1.json"], fps: 20},
-    {src:["assets/images/videos/03-0.json", "assets/images/videos/03-1.json"], fps: 18},
-    {src:["assets/images/videos/04-0.json"], fps: 20},
-    {src:["assets/images/videos/05-0.json", "assets/images/videos/05-1.json","assets/images/videos/05-2.json"], fps: 20},
-    {src:["assets/images/videos/06-0.json", "assets/images/videos/06-1.json"], fps: 20},
-    {src:["assets/images/videos/07-0.json","assets/images/videos/07-1.json"], fps: 20},
-    {src:["assets/images/videos/08-0.json", "assets/images/videos/08-1.json", "assets/images/videos/08-2.json"], fps: 20},
-    {src:["assets/images/videos/09-0.json"], fps: 20},
-    {src:["assets/images/videos/10-0.json", "assets/images/videos/10-1.json"], fps: 20},
+    {src:["assets/assets/images/videos/00-0.json"], fps: 20},
+    {src:["assets/assets/images/videos/01-0.json"], fps: 20},
+    {src:["assets/assets/images/videos/02-0.json", "assets/assets/images/videos/02-1.json"], fps: 20},
+    {src:["assets/assets/images/videos/03-0.json", "assets/assets/images/videos/03-1.json"], fps: 18},
+    {src:["assets/assets/images/videos/04-0.json"], fps: 20},
+    {src:["assets/assets/images/videos/05-0.json", "assets/assets/images/videos/05-1.json","assets/assets/images/videos/05-2.json"], fps: 20},
+    {src:["assets/assets/images/videos/06-0.json", "assets/assets/images/videos/06-1.json"], fps: 20},
+    {src:["assets/assets/images/videos/07-0.json","assets/assets/images/videos/07-1.json"], fps: 20},
+    {src:["assets/assets/images/videos/08-0.json", "assets/assets/images/videos/08-1.json", "assets/assets/images/videos/08-2.json"], fps: 20},
+    {src:["assets/assets/images/videos/09-0.json"], fps: 20},
+    {src:["assets/assets/images/videos/10-0.json", "assets/assets/images/videos/10-1.json"], fps: 20},
     null,
     null,
     null,
     null,
     null,
-    {src:["assets/images/videos/16-0.json","assets/images/videos/16-1.json"], fps: 10},
-    {src:["assets/images/videos/17-0.json","assets/images/videos/17-1.json"], fps: 10},
-    {src:["assets/images/videos/18-0.json","assets/images/videos/18-1.json"], fps: 10},
+    {src:["assets/assets/images/videos/16-0.json","assets/assets/images/videos/16-1.json"], fps: 10},
+    {src:["assets/assets/images/videos/17-0.json","assets/assets/images/videos/17-1.json"], fps: 10},
+    {src:["assets/assets/images/videos/18-0.json","assets/assets/images/videos/18-1.json"], fps: 10},
 ];
 
 

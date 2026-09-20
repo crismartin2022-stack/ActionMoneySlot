@@ -85,6 +85,25 @@
     });
 
 }(window));
+
+// Gestor de sonido básico para evitar que el juego se detenga
+// si no está disponible el motor de sonido original de EGT.
+function SoundManager() {
+    this.sounds = {};
+}
+
+SoundManager.prototype.init = function (config, resources) {
+    this.config = config;
+    this.resources = resources || {};
+};
+
+SoundManager.prototype.play = function () {
+    return null;
+};
+
+SoundManager.prototype.stop = function () {};
+SoundManager.prototype.destroy = function () {};
+
 // Función para cargar todos los recursos del juego
 function loadGameAssets(app) {
     console.log("Cargando recursos del juego...");
@@ -97,7 +116,6 @@ function loadGameAssets(app) {
         .add('reelImages', 'assets/images/reelImages.json')
         .add('gambleResources', 'assets/images/gambleResources.json')
         .add('jackpotResources', 'assets/images/jackpotResources.json')
-        .add('jackpotTitle', 'assets/images/jackpotTitle/jackpotTitle.json');
 
     // Añadir los videos de los símbolos
     var reelVideos = new Config().reelVideos;

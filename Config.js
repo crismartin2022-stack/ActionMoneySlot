@@ -1,4 +1,4 @@
-// game/Config.js - Versión de prueba simplificada
+// game/Config.js - Versión de prueba simplificada y segura
 var com = window.com || {};
 com.egt = com.egt || {};
 com.egt.baseslot = com.egt.baseslot || {};

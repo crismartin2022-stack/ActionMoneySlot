@@ -7,6 +7,6 @@
     "start": "http-server -p 8080 -c-1"
   },
   "dependencies": {
-    "http-server": "^1^.16.0"
+    "http-server": "^1.16.0"
   }
 }

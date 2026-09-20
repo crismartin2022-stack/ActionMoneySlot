@@ -13,7 +13,7 @@ RUN npm install
 # Copiamos el resto de los archivos de nuestro proyecto
 COPY . .
 
-# Expone el puerto 8080 (aunque Railway se encargará de redirigir)
+# Exponemos el puerto 8080 (aunque Railway se encargará de redirigir)
 EXPOSE 8080
 
 # El comando más importante: Iniciamos el servidor directamente con node

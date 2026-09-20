@@ -1,9 +1,10 @@
-// game/Config.js - Versión de prueba simplificada y segura
+// Config.js - VERSIÓN DE PRUEBA MÍNIMA
 var com = window.com || {};
 com.egt = com.egt || {};
 com.egt.baseslot = com.egt.baseslot || {};
 
 var Config = function() {
+    // Propiedades básicas sin objetos complejos que puedan causar errores
     this.reelWidth = 172;
     this.reelHeight = 516;
     this.reelSpacing = 17;
@@ -14,10 +15,7 @@ var Config = function() {
     this.linesCount = [1, 5, 10, 15, 20];
     this.hasFreespins = true;
     this.coinAnimationCoef = 20;
-    
-    // Ruta a los spritesheets de los carretes
-    this.reelImages = ["assets/images/reelImages.json"];
 }
 
-// Asigna la configuración al espacio de nombres global de EGT
+// Asigna la configuración al espacio de nombres global
 com.egt.baseslot.Config = Config;

@@ -175,6 +175,7 @@
       }
 
       var sslHost = getBooleanQueryParam('sslHost', window.location.protocol === 'https:');
+      var requestedSslHost = sslHost;
       var rawTcpHost = getQueryParam('tcpHost', window.location.hostname);
       var rawTcpPort = getQueryParam('tcpPort', sslHost ? '443' : '80');
       var socketConfig = normalizeSocketConfig(rawTcpHost, rawTcpPort, sslHost);
@@ -188,6 +189,7 @@
       var tcpPort = socketConfig.port;
       var wsEndpoint = socketConfig.wsEndpoint;
       var bootstrapSocketUrl = (sslHost ? 'wss://' : 'ws://') + tcpHost + ':' + tcpPort;
+      var requestedBootstrapSocketUrl = (requestedSslHost ? 'wss://' : 'ws://') + tcpHost + ':' + tcpPort;
       var hasOpenedSocket = false;
 
       window.gameName = gameName;
@@ -214,7 +216,8 @@
       if (typeof window.WebSocket === 'function') {
         var NativeWebSocket = window.WebSocket;
         window.WebSocket = function (url, protocols) {
-          var resolvedUrl = isBootstrapSocketUrl(url, sslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, bootstrapSocketUrl, wsEndpoint)
+          var resolvedUrl = (isBootstrapSocketUrl(url, requestedSslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, requestedBootstrapSocketUrl, wsEndpoint)
+            || isBootstrapSocketUrl(url, sslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, bootstrapSocketUrl, wsEndpoint))
             ? wsEndpoint
             : url;
           var socket = protocols === undefined ? new NativeWebSocket(resolvedUrl) : new NativeWebSocket(resolvedUrl, protocols);

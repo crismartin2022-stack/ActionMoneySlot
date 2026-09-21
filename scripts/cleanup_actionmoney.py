@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Descomprime actionmoney.zip y deja una estructura segura y ordenada.
+"""Extrae actionmoney.zip de forma segura y opcionalmente limpia duplicados.
 
-Uso:
-    python scripts/cleanup_actionmoney.py
-    python scripts/cleanup_actionmoney.py --force
+Modo por defecto:
+    - No destructivo (solo reporte / dry-run)
+    - Valida rutas del ZIP para bloquear Zip Slip
 """
 
 from __future__ import annotations
@@ -55,43 +55,117 @@ def remove_empty_dirs(root: Path) -> None:
                 full_path.rmdir()
 
 
-def extract_zip(zip_path: Path, destination: Path, force: bool = False) -> Path:
+def is_safe_member_path(destination: Path, member_name: str) -> bool:
+    destination_resolved = destination.resolve()
+    member_target = (destination / member_name).resolve()
+    return destination_resolved == member_target or destination_resolved in member_target.parents
+
+
+def validate_zip_members(archive: zipfile.ZipFile, destination: Path) -> list[zipfile.ZipInfo]:
+    members: list[zipfile.ZipInfo] = []
+    for member in archive.infolist():
+        if member.filename.startswith(("/", "\\")):
+            raise ValueError(f"Ruta absoluta no permitida en ZIP: {member.filename}")
+        if not is_safe_member_path(destination, member.filename):
+            raise ValueError(f"Posible Zip Slip detectado: {member.filename}")
+        members.append(member)
+    return members
+
+
+def extract_zip(zip_path: Path, destination: Path, apply_changes: bool, overwrite: bool) -> Path:
     if destination.exists():
-        if not force:
-            print(f"La carpeta ya existe: {destination}. Usa --force para reemplazarla.")
-            return destination
-        shutil.rmtree(destination)
+        if not overwrite:
+            raise FileExistsError(
+                f"La carpeta destino ya existe: {destination}. Usa --overwrite para permitir reemplazo."
+            )
+        if apply_changes:
+            shutil.rmtree(destination)
 
     with zipfile.ZipFile(zip_path, "r") as archive:
-        for member in archive.infolist():
-            target_path = (destination / member.filename).resolve()
-            if target_path.is_relative_to(destination.resolve()) is False:
-                raise ValueError(f"Ruta insegura dentro del ZIP: {member.filename}")
-
-            archive.extract(member, destination)
+        members = validate_zip_members(archive, destination)
+        if apply_changes:
+            destination.mkdir(parents=True, exist_ok=True)
+            for member in members:
+                archive.extract(member, destination)
+        else:
+            print(f"[dry-run] Archivos a extraer: {len(members)}")
 
     return destination
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Extrae actionmoney.zip y limpia duplicados de forma segura.")
-    parser.add_argument("--force", action="store_true", help="Reemplaza la carpeta de extracción si existe")
-    args = parser.parse_args()
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Extracción y limpieza segura de actionmoney.zip")
+    parser.add_argument(
+        "--zip",
+        dest="zip_path",
+        default="actionmoney.zip",
+        help="Ruta al ZIP (por defecto: actionmoney.zip en la raíz del repo)",
+    )
+    parser.add_argument(
+        "--dest",
+        dest="destination",
+        default="_actionmoney_extracted",
+        help="Carpeta de salida (por defecto: _actionmoney_extracted)",
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Aplica cambios reales (por defecto solo dry-run no destructivo).",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Permite reemplazar carpeta destino existente (requiere --apply).",
+    )
+    return parser.parse_args()
 
+
+def main() -> int:
+    args = parse_args()
     repo_root = Path(__file__).resolve().parents[1]
-    zip_path = repo_root / "actionmoney.zip"
+    zip_path = Path(args.zip_path)
+    if not zip_path.is_absolute():
+        zip_path = repo_root / zip_path
+    destination = Path(args.destination)
+    if not destination.is_absolute():
+        destination = repo_root / destination
 
     if not zip_path.exists():
-        print(f"No existe el archivo ZIP: {zip_path}", file=sys.stderr)
+        message = f"No existe el archivo ZIP: {zip_path}"
+        if args.apply:
+            print(message, file=sys.stderr)
+            return 1
+        print(f"[dry-run] {message}")
+        return 0
+
+    if args.overwrite and not args.apply:
+        print("--overwrite requiere --apply", file=sys.stderr)
         return 1
 
+    mode = "apply" if args.apply else "dry-run"
+    print(f"Modo: {mode}")
     print(f"Descomprimiendo: {zip_path}")
-    extracted_root = extract_zip(zip_path, repo_root / "_actionmoney_extracted", force=args.force)
-    print(f"Carpeta extraída: {extracted_root}")
 
-    if not extracted_root.exists():
+    try:
+        extracted_root = extract_zip(
+            zip_path=zip_path,
+            destination=destination,
+            apply_changes=args.apply,
+            overwrite=args.overwrite,
+        )
+    except (ValueError, FileExistsError) as error:
+        print(str(error), file=sys.stderr)
+        return 1
+
+    print(f"Carpeta destino: {extracted_root}")
+
+    if args.apply and not extracted_root.exists():
         print("La extracción no produjo contenidos válidos.", file=sys.stderr)
         return 1
+
+    if not args.apply:
+        print("[dry-run] Validación finalizada sin escribir archivos.")
+        return 0
 
     print("Eliminando archivos duplicados...")
     deleted = remove_duplicate_files(extracted_root)

@@ -37,6 +37,8 @@
         if (!box) {
           box = document.createElement('div');
           box.id = id;
+          box.setAttribute('role', id === 'runtimeError' ? 'alert' : 'status');
+          box.setAttribute('aria-live', id === 'runtimeError' ? 'assertive' : 'polite');
           box.style.position = 'fixed';
           box.style.top = top + 'px';
           box.style.left = '12px';
@@ -97,7 +99,7 @@
           var defaultPort = effectiveSslHost ? '443' : '80';
           var normalizedHost = parsedHost.hostname;
           var detectedPort = parsedHost.port;
-          var normalizedPort = detectedPort || (hasExplicitScheme ? defaultPort : portInput || defaultPort);
+          var normalizedPort = detectedPort || portInput || defaultPort;
 
           if (!normalizedHost) {
             return { error: 'tcpHost no contiene un host válido.' };
@@ -117,10 +119,6 @@
           }
 
           var includePortInEndpoint = Boolean(detectedPort) || String(portNumber) !== defaultPort;
-
-          if (hasExplicitScheme && !detectedPort && portInput) {
-            warnings.push('tcpHost ya define el esquema WebSocket; se usa el puerto por defecto ' + defaultPort + ' y se ignora tcpPort=' + portInput + '.');
-          }
 
           if (detectedPort) {
             warnings.push(portInput && portInput !== detectedPort

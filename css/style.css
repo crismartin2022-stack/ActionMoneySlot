@@ -1,44 +1,162 @@
-body, html {
+html,
+body {
     margin: 0;
-    padding: 0;
-    height: 100%;
-    overflow: hidden;
-    background-color: #000;
+    min-height: 100%;
+    background: #07050f;
+    color: #f5f0ff;
     font-family: Arial, sans-serif;
 }
 
+body {
+    background-image:
+        linear-gradient(180deg, rgba(7, 5, 15, 0.88), rgba(7, 5, 15, 0.96)),
+        url("../assets/images/background.jpg");
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+}
+
+a {
+    color: inherit;
+}
+
+code {
+    color: #ffd769;
+}
+
 #game-container {
+    box-sizing: border-box;
+    min-height: 100vh;
+    padding: 32px;
+    display: grid;
+    gap: 24px;
+    align-content: center;
+}
+
+.panel {
+    max-width: 1120px;
     width: 100%;
-    height: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    color: white;
+    margin: 0 auto;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 24px;
+    background: rgba(10, 11, 20, 0.78);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(12px);
 }
 
 #loading {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center;
+    padding: 32px;
+}
+
+.eyebrow {
+    margin: 0 0 12px;
+    color: #ffd769;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+h1,
+h2,
+p,
+ul {
+    margin-top: 0;
+}
+
+h1 {
+    font-size: clamp(2rem, 4vw, 3rem);
 }
 
 .progress-bar {
-    width: 300px;
-    height: 20px;
-    background-color: #333;
-    border: 1px solid #555;
-    margin-top: 20px;
+    width: min(420px, 100%);
+    height: 14px;
+    margin-top: 24px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
 }
 
 .progress-fill {
     height: 100%;
-    width: 0%;
-    background-color: #4CAF50;
-    animation: loading 2s ease-in-out forwards;
+    width: 0;
+    background: linear-gradient(90deg, #f9af0c, #ffd769 65%, #fff3c1);
+    animation: loading 1.2s ease-in-out forwards;
+}
+
+.shell {
+    display: grid;
+    gap: 24px;
+    padding: 32px;
+}
+
+.shell-copy {
+    max-width: 640px;
+}
+
+.shell-art {
+    min-height: 220px;
+    border-radius: 20px;
+    background:
+        linear-gradient(180deg, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.35)),
+        url("../assets/images/background.jpg") center/cover no-repeat;
+}
+
+.hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 18px;
+    border-radius: 999px;
+    background: #ffd769;
+    color: #2a1800;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.button-secondary {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+
+.checklist {
+    display: grid;
+    gap: 24px;
+    padding: 32px;
+}
+
+.checklist ul {
+    padding-left: 20px;
+    margin-bottom: 0;
+}
+
+.fatal {
+    padding: 32px;
+}
+
+@media (min-width: 900px) {
+    .shell {
+        grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+        align-items: center;
+    }
+
+    .checklist {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
 }
 
 @keyframes loading {
-    to { width: 100%; }
+    from {
+        width: 0;
+    }
+
+    to {
+        width: 100%;
+    }
 }

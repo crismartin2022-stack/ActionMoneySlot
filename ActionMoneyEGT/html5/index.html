@@ -68,7 +68,7 @@
         return value === 'true' || value === '1';
       }
 
-      function normalizeSocketConfig(rawHost, rawPort, sslHost) {
+      function normalizeSocketConfig(rawHost, rawPort, sslHost, hasExplicitPortParam) {
         var requestedProtocol = sslHost ? 'wss://' : 'ws://';
         var hostInput = String(rawHost || '').trim();
         var portInput = String(rawPort || '').trim();
@@ -121,9 +121,11 @@
           var includePortInEndpoint = String(portNumber) !== defaultPort;
 
           if (detectedPort) {
-            warnings.push(portInput && portInput !== detectedPort
-              ? 'tcpHost ya incluye el puerto ' + detectedPort + '; se ignora tcpPort=' + portInput + '.'
-              : 'tcpHost ya incluye el puerto ' + detectedPort + '; no se agrega un segundo puerto.');
+            if (hasExplicitPortParam) {
+              warnings.push(portInput && portInput !== detectedPort
+                ? 'tcpHost ya incluye el puerto ' + detectedPort + '; se ignora tcpPort=' + portInput + '.'
+                : 'tcpHost ya incluye el puerto ' + detectedPort + '; no se agrega un segundo puerto.');
+            }
           }
 
           return {
@@ -169,8 +171,10 @@
       var sslHost = getBooleanQueryParam('sslHost', window.location.protocol === 'https:');
       var requestedSslHost = sslHost;
       var rawTcpHost = getQueryParam('tcpHost', window.location.hostname);
-      var rawTcpPort = getQueryParam('tcpPort', sslHost ? '443' : '80');
-      var socketConfig = normalizeSocketConfig(rawTcpHost, rawTcpPort, sslHost);
+      var tcpPortParam = gptsInit.getParameterBy('tcpPort');
+      var hasExplicitTcpPort = tcpPortParam !== null && tcpPortParam !== '';
+      var rawTcpPort = hasExplicitTcpPort ? tcpPortParam : (sslHost ? '443' : '80');
+      var socketConfig = normalizeSocketConfig(rawTcpHost, rawTcpPort, sslHost, hasExplicitTcpPort);
       var gameName = getQueryParam('gameName', getQueryParam('game', 'ActionMoneySlot'));
       if (socketConfig.error) {
         showRuntimeError(socketConfig.error);

@@ -1,0 +1,37 @@
+# ActionMoneySlot
+
+Repositorio organizado para ejecutar el juego desde la raíz con `npm install` y `npm start`.
+
+## Requisitos
+
+- Node.js 18+
+- npm
+
+## Instalación
+
+```bash
+npm install
+```
+
+## Arranque local
+
+```bash
+npm start
+```
+
+El servidor estático se inicia en `http://localhost:8080` (o `PORT` si está definido).
+
+## Estructura principal
+
+- `/index.html`: punto de entrada del frontend.
+- `/main.js`: boot del juego (`com.egt.actionMoneySlot.Main`).
+- `/Config.js`: configuración del juego y rutas de assets.
+- `/assets/`: recursos gráficos, audio y datos del juego.
+- `/css/`: estilos del shell/platform.
+- `/scripts/start-server.js`: servidor estático en Node + `http-server`.
+- `/Dockerfile`: arranque en contenedor usando el mismo script.
+
+## Notas importantes
+
+- `actionmoney.zip` debe conservarse intacto cuando esté presente en la raíz, como fuente/origen del juego.
+- La carpeta `_actionmoney_extracted/` y `node_modules/` se ignoran por `.gitignore`.

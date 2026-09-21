@@ -9,4 +9,4 @@ COPY . .
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "http-server . -p ${PORT:-8080} -c-1"]
+CMD ["node", "scripts/start-server.js"]

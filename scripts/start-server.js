@@ -188,8 +188,7 @@ const server = http.createServer((req, res) => {
   if (requestPath === '/health' || requestPath === '/healthz') {
     sendJson(res, 200, {
       ok: true,
-      entrypoint: DEFAULT_ENTRYPOINT,
-      runtimeConfig
+      entrypoint: DEFAULT_ENTRYPOINT
     }, shouldSendBody);
     return;
   }

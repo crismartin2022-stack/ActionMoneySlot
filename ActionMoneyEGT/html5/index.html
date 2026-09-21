@@ -67,11 +67,11 @@
       }
 
       function normalizeSocketConfig(rawHost, rawPort, sslHost) {
-        var protocol = sslHost ? 'wss://' : 'ws://';
-        var defaultPort = sslHost ? '443' : '80';
+        var requestedProtocol = sslHost ? 'wss://' : 'ws://';
         var hostInput = String(rawHost || '').trim();
         var portInput = String(rawPort || '').trim();
         var hostWithScheme = hostInput;
+        var hasExplicitScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(hostInput);
         var warnings = [];
 
         if (!hostInput) {
@@ -83,18 +83,21 @@
           return { error: 'tcpHost debe contener solo host[:puerto], sin path ni query. Valor recibido: ' + hostInput };
         }
 
-        if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(hostWithScheme)) {
-          hostWithScheme = protocol + hostWithScheme;
+        if (!hasExplicitScheme) {
+          hostWithScheme = requestedProtocol + hostWithScheme;
         }
 
         try {
           var parsedHost = new URL(hostWithScheme);
-          if (/^[a-z][a-z0-9+.-]*:\/\//i.test(hostInput) && parsedHost.protocol !== 'ws:' && parsedHost.protocol !== 'wss:') {
+          if (hasExplicitScheme && parsedHost.protocol !== 'ws:' && parsedHost.protocol !== 'wss:') {
             return { error: 'tcpHost solo acepta host[:puerto] o URLs ws/wss. Valor recibido: ' + hostInput };
           }
+          var effectiveSslHost = hasExplicitScheme ? parsedHost.protocol === 'wss:' : sslHost;
+          var protocol = effectiveSslHost ? 'wss://' : 'ws://';
+          var defaultPort = effectiveSslHost ? '443' : '80';
           var normalizedHost = parsedHost.hostname;
           var detectedPort = parsedHost.port;
-          var normalizedPort = detectedPort || portInput || defaultPort;
+          var normalizedPort = detectedPort || (hasExplicitScheme ? defaultPort : portInput || defaultPort);
 
           if (!normalizedHost) {
             return { error: 'tcpHost no contiene un host válido.' };
@@ -115,6 +118,10 @@
 
           var includePortInEndpoint = Boolean(detectedPort) || String(portNumber) !== defaultPort;
 
+          if (hasExplicitScheme && !detectedPort && portInput) {
+            warnings.push('tcpHost ya define el esquema WebSocket; se usa el puerto por defecto ' + defaultPort + ' y se ignora tcpPort=' + portInput + '.');
+          }
+
           if (detectedPort) {
             warnings.push(portInput && portInput !== detectedPort
               ? 'tcpHost ya incluye el puerto ' + detectedPort + '; se ignora tcpPort=' + portInput + '.'
@@ -124,6 +131,7 @@
           return {
             host: normalizedHost,
             port: String(portNumber),
+            sslHost: effectiveSslHost,
             wsEndpoint: protocol + normalizedHost + (includePortInEndpoint ? ':' + portNumber : ''),
             warnings: warnings
           };
@@ -177,6 +185,7 @@
         showRuntimeError(socketConfig.error);
         return;
       }
+      sslHost = socketConfig.sslHost;
       var tcpHost = socketConfig.host;
       var tcpPort = socketConfig.port;
       var wsEndpoint = socketConfig.wsEndpoint;

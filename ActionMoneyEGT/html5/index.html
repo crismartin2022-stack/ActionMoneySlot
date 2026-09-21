@@ -159,7 +159,7 @@
         if (value.charAt(0) === '[') {
           match = value.match(/^\[[^\]]+\](?::\d+)?(.*)$/);
           if (!match) {
-            return false;
+            return true;
           }
         } else {
           match = value.match(/^[^/?#:]+(?::\d+)?(.*)$/);
@@ -180,7 +180,7 @@
       }
 
       function isBootstrapSocketUrl(url, expectedProtocol, expectedHost, expectedPort, expectedPath) {
-        var isUrlObject = url && typeof url === 'object' && typeof url.href === 'string';
+        var isUrlObject = Object.prototype.toString.call(url) === '[object URL]';
         if (typeof url !== 'string' && !isUrlObject) {
           return false;
         }

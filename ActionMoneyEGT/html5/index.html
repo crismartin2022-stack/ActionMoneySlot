@@ -297,7 +297,13 @@
       }
 
       window.addEventListener('error', function (event) {
-        if (event && event.target && event.target.tagName === 'SCRIPT') {
+        if (
+          event
+          && event.target
+          && event.target !== window
+          && event.target.tagName === 'SCRIPT'
+          && !event.message
+        ) {
           var scriptSource = event.target.getAttribute('src') || event.filename || 'desconocido';
           showRuntimeError('Falló la carga del script: ' + scriptSource);
         }

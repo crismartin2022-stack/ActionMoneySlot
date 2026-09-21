@@ -168,11 +168,12 @@
           return false;
         }
 
-        if (!isUrlObject && !/^wss?:\/\//i.test(url)) {
+        var candidateUrl = isUrlObject ? url.href : url;
+        if (!/^wss?:\/\//i.test(candidateUrl)) {
           return false;
         }
         try {
-          var parsedUrl = new URL(url);
+          var parsedUrl = new URL(candidateUrl);
           if (parsedUrl.protocol !== 'ws:' && parsedUrl.protocol !== 'wss:') {
             return false;
           }

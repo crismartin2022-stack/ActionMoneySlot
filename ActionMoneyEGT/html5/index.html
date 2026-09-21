@@ -118,7 +118,7 @@
             return { error: 'tcpPort debe estar entre 1 y 65535. Valor recibido: ' + normalizedPort };
           }
 
-          var includePortInEndpoint = Boolean(detectedPort) || String(portNumber) !== defaultPort;
+          var includePortInEndpoint = String(portNumber) !== defaultPort;
 
           if (detectedPort) {
             warnings.push(portInput && portInput !== detectedPort

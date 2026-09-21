@@ -78,6 +78,11 @@
           return { error: 'tcpHost no puede estar vacío.' };
         }
 
+        var hostAuthority = hostInput.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+        if (/[/?#]/.test(hostAuthority)) {
+          return { error: 'tcpHost debe contener solo host[:puerto], sin path ni query. Valor recibido: ' + hostInput };
+        }
+
         if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(hostWithScheme)) {
           hostWithScheme = protocol + hostWithScheme;
         }
@@ -93,10 +98,6 @@
 
           if (!normalizedHost) {
             return { error: 'tcpHost no contiene un host válido.' };
-          }
-
-          if ((parsedHost.pathname && parsedHost.pathname !== '/') || parsedHost.search || parsedHost.hash) {
-            return { error: 'tcpHost debe contener solo host[:puerto], sin path ni query. Valor recibido: ' + hostInput };
           }
 
           if (normalizedHost.indexOf(':') !== -1 && normalizedHost.charAt(0) !== '[') {

@@ -190,10 +190,16 @@
 
   function getBootstrapParams() {
     var search = new URLSearchParams(window.location.search);
+    var tcpPort = parseInt(search.get("tcpPort") || "", 10);
+
+    if (!Number.isFinite(tcpPort)) {
+      tcpPort = 8095;
+    }
+
     return {
       sessionKey: search.get("sessionKey") || "INT:EUR:5000000:IPC:taenagent",
       tcpHost: search.get("tcpHost") || "wss://mgs-demo.egtmgs.com",
-      tcpPort: Number(search.get("tcpPort") || 8095),
+      tcpPort: tcpPort,
       lang: search.get("lang") || "es"
     };
   }
@@ -239,7 +245,7 @@
       "    </ul>",
       "  </div>",
       "  <div>",
-      "    <h2>Librerías faltantes</h2>",
+      "    <h2>Archivos de runtime faltantes</h2>",
       "    <ul>" + missingEngine + "</ul>",
       "  </div>",
       "  <div>",
@@ -312,7 +318,7 @@
     setStatus("Validando archivos del bundle…");
 
     Promise.all(
-      LOCAL_REQUIRED_FILES.concat(LOCAL_ENGINE_LIBS).map(function (path) {
+      LOCAL_REQUIRED_FILES.concat(LOCAL_ENGINE_LIBS, LOCAL_GAME_BUNDLES).map(function (path) {
         return checkAsset(path).then(function (exists) {
           return { path: path, exists: exists };
         });
@@ -327,7 +333,7 @@
             return;
           }
 
-          if (LOCAL_ENGINE_LIBS.indexOf(result.path) !== -1) {
+          if (LOCAL_ENGINE_LIBS.indexOf(result.path) !== -1 || LOCAL_GAME_BUNDLES.indexOf(result.path) !== -1) {
             missingEngine.push(result.path);
             return;
           }

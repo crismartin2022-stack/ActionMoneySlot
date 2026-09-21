@@ -60,6 +60,7 @@
       };
     })();
   </script>
+  <script src="/runtime-config.js" onerror="window.__bootstrapScriptError('/runtime-config.js')"></script>
   <script src="./lib/jquery.min.js" onerror="window.__bootstrapScriptError('lib/jquery.min.js')"></script>
   <script src="./device.min.js" onerror="window.__bootstrapScriptError('device.min.js')"></script>
   <script src="../init/init_desktop_cf_test.js" onerror="window.__bootstrapScriptError('init_desktop_cf_test.js')"></script>
@@ -304,14 +305,17 @@
       });
 
       waitForRuntimeDependencies(function () {
-        var sslHost = getBooleanQueryParam('sslHost', window.location.protocol === 'https:');
+        var runtimeConfig = window.__ACTION_MONEY_SLOT_CONFIG || {};
+        var sslHost = getBooleanQueryParam('sslHost', runtimeConfig.sslHost);
         var requestedSslHost = sslHost;
-        var rawTcpHost = getQueryParam('tcpHost', window.location.hostname);
+        var rawTcpHost = getQueryParam('tcpHost', runtimeConfig.tcpHost || window.location.hostname);
         var tcpPortParam = gptsInit.getParameterBy('tcpPort');
         var hasExplicitTcpPort = tcpPortParam !== null && tcpPortParam !== '';
-        var rawTcpPort = hasExplicitTcpPort ? tcpPortParam : (sslHost ? '443' : '80');
+        var rawTcpPort = hasExplicitTcpPort
+          ? tcpPortParam
+          : String(runtimeConfig.tcpPort || (sslHost ? '443' : '80'));
         var socketConfig = normalizeSocketConfig(rawTcpHost, rawTcpPort, sslHost, hasExplicitTcpPort);
-        var gameName = getQueryParam('gameName', getQueryParam('game', 'ActionMoneySlot'));
+        var gameName = getQueryParam('gameName', getQueryParam('game', runtimeConfig.gameName || runtimeConfig.game || 'ActionMoneySlot'));
         if (socketConfig.error) {
           showRuntimeError(socketConfig.error);
           return;
@@ -402,9 +406,9 @@
             tcpPort: tcpPort,
             gameName: gameName,
             game: gameName,
-            language: getQueryParam('language', 'en'),
-            currency: getQueryParam('currency', 'EUR'),
-            token: getQueryParam('token', 'local-test-token')
+            language: getQueryParam('language', runtimeConfig.language || 'en'),
+            currency: getQueryParam('currency', runtimeConfig.currency || 'EUR'),
+            token: getQueryParam('token', runtimeConfig.token || 'local-test-token')
           });
         } catch (error) {
           showRuntimeError('Falló la inicialización: ' + (error && error.message ? error.message : String(error)));

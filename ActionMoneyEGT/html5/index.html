@@ -124,10 +124,8 @@
           var includePortInEndpoint = String(portNumber) !== defaultPort;
 
           if (detectedPort) {
-            if (hasExplicitPortParam) {
-              warnings.push(portInput && portInput !== detectedPort
-                ? 'tcpHost ya incluye el puerto ' + detectedPort + '; se ignora tcpPort=' + portInput + '.'
-                : 'tcpHost ya incluye el puerto ' + detectedPort + '; no se agrega un segundo puerto.');
+            if (hasExplicitPortParam && portInput && portInput !== detectedPort) {
+              warnings.push('tcpHost ya incluye el puerto ' + detectedPort + '; se ignora tcpPort=' + portInput + '.');
             }
           }
 

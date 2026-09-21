@@ -321,6 +321,8 @@
         var tcpPort = socketConfig.port;
         var wsEndpoint = socketConfig.wsEndpoint;
         var hasOpenedSocket = false;
+        var socketWatchdogId = null;
+        var hasAttemptedSocket = false;
 
         window.gameName = gameName;
         console.info('[ActionMoneySlot] WebSocket endpoint:', wsEndpoint);
@@ -340,11 +342,23 @@
               ? wsEndpoint
               : url;
             var socket = protocols === undefined ? new NativeWebSocket(resolvedUrl) : new NativeWebSocket(resolvedUrl, protocols);
+            if (!hasAttemptedSocket) {
+              hasAttemptedSocket = true;
+              socketWatchdogId = setTimeout(function () {
+                if (!hasOpenedSocket) {
+                  showRuntimeError('La conexión WebSocket sigue sin abrirse después de 15s: ' + wsEndpoint);
+                }
+              }, 15000);
+            }
             try {
               Object.defineProperty(socket, 'constructor', { value: WrappedWebSocket });
             } catch (ignore) {}
             socket.addEventListener('open', function () {
               hasOpenedSocket = true;
+              if (socketWatchdogId !== null) {
+                clearTimeout(socketWatchdogId);
+                socketWatchdogId = null;
+              }
             });
             socket.addEventListener('error', function () {
               showRuntimeError('Falló la conexión WebSocket con ' + wsEndpoint + '. Revisa tcpHost/tcpPort/sslHost.');
@@ -357,18 +371,17 @@
             return socket;
           };
           WrappedWebSocket.prototype = NativeWebSocket.prototype;
-          WrappedWebSocket.CONNECTING = NativeWebSocket.CONNECTING;
-          WrappedWebSocket.OPEN = NativeWebSocket.OPEN;
-          WrappedWebSocket.CLOSING = NativeWebSocket.CLOSING;
-          WrappedWebSocket.CLOSED = NativeWebSocket.CLOSED;
+          if (typeof Object.setPrototypeOf === 'function') {
+            Object.setPrototypeOf(WrappedWebSocket, NativeWebSocket);
+          }
+          Object.getOwnPropertyNames(NativeWebSocket).forEach(function (name) {
+            if (name === 'prototype') return;
+            try {
+              Object.defineProperty(WrappedWebSocket, name, Object.getOwnPropertyDescriptor(NativeWebSocket, name));
+            } catch (ignore) {}
+          });
           window.WebSocket = WrappedWebSocket;
         }
-
-        setTimeout(function () {
-          if (!hasOpenedSocket) {
-            showRuntimeError('La conexión WebSocket sigue sin abrirse después de 15s: ' + wsEndpoint);
-          }
-        }, 15000);
 
         try {
           initDesktopHtml({

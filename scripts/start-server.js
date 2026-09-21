@@ -104,31 +104,31 @@ function normalizeBoolean(value, fallback) {
   return fallback;
 }
 
-function sendJson(res, statusCode, body) {
+function sendJson(res, statusCode, body, shouldSendBody) {
   res.writeHead(statusCode, {
     'Cache-Control': 'no-store',
     'Content-Type': 'application/json; charset=utf-8'
   });
-  res.end(JSON.stringify(body));
+  res.end(shouldSendBody ? JSON.stringify(body) : undefined);
 }
 
-function sendRuntimeConfig(res) {
+function sendRuntimeConfig(res, shouldSendBody) {
   const body = `window.__ACTION_MONEY_SLOT_CONFIG = ${JSON.stringify(runtimeConfig, null, 2)};\n`;
   res.writeHead(200, {
     'Cache-Control': 'no-store',
     'Content-Type': 'application/javascript; charset=utf-8'
   });
-  res.end(body);
+  res.end(shouldSendBody ? body : undefined);
 }
 
-function sendFile(filePath, res) {
+function sendFile(filePath, res, shouldSendBody) {
   fs.readFile(filePath, (error, content) => {
     if (error) {
       const statusCode = error.code === 'ENOENT' ? 404 : 500;
       res.writeHead(statusCode, {
         'Content-Type': 'text/plain; charset=utf-8'
       });
-      res.end(statusCode === 404 ? 'Not Found' : 'Internal Server Error');
+      res.end(shouldSendBody ? (statusCode === 404 ? 'Not Found' : 'Internal Server Error') : undefined);
       return;
     }
 
@@ -136,12 +136,20 @@ function sendFile(filePath, res) {
     res.writeHead(200, {
       'Content-Type': MIME_TYPES[extension] || 'application/octet-stream'
     });
-    res.end(content);
+    res.end(shouldSendBody ? content : undefined);
   });
 }
 
 function resolveRequestPath(requestPath) {
-  const cleanPath = decodeURIComponent((requestPath || '/').split('?')[0]);
+  let cleanPath;
+
+  try {
+    cleanPath = decodeURIComponent((requestPath || '/').split('?')[0]);
+  } catch (error) {
+    return {
+      error: 400
+    };
+  }
 
   if (cleanPath === '/') {
     return {
@@ -165,12 +173,13 @@ function resolveRequestPath(requestPath) {
 
 const server = http.createServer((req, res) => {
   const method = req.method || 'GET';
+  const shouldSendBody = method !== 'HEAD';
   if (!['GET', 'HEAD'].includes(method)) {
     res.writeHead(405, {
       Allow: 'GET, HEAD',
       'Content-Type': 'text/plain; charset=utf-8'
     });
-    res.end('Method Not Allowed');
+    res.end(shouldSendBody ? 'Method Not Allowed' : undefined);
     return;
   }
 
@@ -181,12 +190,12 @@ const server = http.createServer((req, res) => {
       ok: true,
       entrypoint: DEFAULT_ENTRYPOINT,
       runtimeConfig
-    });
+    }, shouldSendBody);
     return;
   }
 
   if (requestPath === '/runtime-config.js') {
-    sendRuntimeConfig(res);
+    sendRuntimeConfig(res, shouldSendBody);
     return;
   }
 
@@ -201,20 +210,21 @@ const server = http.createServer((req, res) => {
   }
 
   if (resolvedPath.error) {
-    res.writeHead(resolvedPath.error, {
+    const statusCode = resolvedPath.error;
+    res.writeHead(statusCode, {
       'Content-Type': 'text/plain; charset=utf-8'
     });
-    res.end('Forbidden');
+    res.end(shouldSendBody ? (statusCode === 400 ? 'Bad Request' : 'Forbidden') : undefined);
     return;
   }
 
   fs.stat(resolvedPath.filePath, (error, stats) => {
     if (!error && stats.isDirectory()) {
-      sendFile(path.join(resolvedPath.filePath, 'index.html'), res);
+      sendFile(path.join(resolvedPath.filePath, 'index.html'), res, shouldSendBody);
       return;
     }
 
-    sendFile(resolvedPath.filePath, res);
+    sendFile(resolvedPath.filePath, res, shouldSendBody);
   });
 });
 

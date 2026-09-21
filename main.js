@@ -1,72 +1,29 @@
-console.log("ActionMoneySlot - inicializando runtime EGT...");
+// main.js - bootstrap del shell del juego
+console.log("ActionMoneySlot - inicializado.");
 
 window.gameApp = window.gameApp || {};
 
 function initGame() {
-    const loadingElement = document.getElementById("loading");
-    if (loadingElement) {
-        loadingElement.style.display = "none";
-    }
+  const loadingElement = document.getElementById("loading");
+  const gameContainer = document.getElementById("game-container");
 
-    const gameContainer = document.getElementById("game-container");
-    if (!gameContainer) {
-        console.error("No existe #game-container");
-        return;
-    }
+  if (loadingElement) {
+    loadingElement.style.display = "none";
+  }
 
-    if (typeof Config === "undefined") {
-        console.error("Config no está cargado.");
-        gameContainer.innerHTML = `
-            <div style="padding:2rem;font-family:sans-serif;color:#c00;">
-                <h2>Error: Config.js no cargó</h2>
-                <p>Falta cargar la config del juego.</p>
-            </div>
-        `;
-        return;
-    }
+  if (gameContainer) {
+    gameContainer.innerHTML = `
+      <div class="game-shell">
+        <h1>¡ActionMoneySlot cargado!</h1>
+        <p>La configuración y el boot del juego están listos para inicializarse.</p>
+      </div>
+    `;
+  }
 
-    if (typeof Game === "undefined") {
-        console.error("Game no está cargado.");
-        gameContainer.innerHTML = `
-            <div style="padding:2rem;font-family:sans-serif;color:#c00;">
-                <h2>Error: Game.min.js no cargó</h2>
-                <p>Falta el runtime del juego.</p>
-            </div>
-        `;
-        return;
-    }
-
-    try {
-        const config = new Config();
-        window.gameApp.config = config;
-
-        const game = new Game(config);
-        window.gameApp.game = game;
-
-        if (game && game.view) {
-            gameContainer.innerHTML = "";
-            gameContainer.appendChild(game.view);
-            console.log("Juego iniciado correctamente.");
-        } else {
-            console.warn("Game creado, pero no tiene vista visible.");
-            gameContainer.innerHTML = `
-                <div style="padding:2rem;font-family:sans-serif;color:#0a0;">
-                    <h2>ActionMoneySlot</h2>
-                    <p>Runtime cargado correctamente.</p>
-                </div>
-            `;
-        }
-    } catch (error) {
-        console.error("Error al iniciar el juego:", error);
-        gameContainer.innerHTML = `
-            <div style="padding:2rem;font-family:sans-serif;color:#c00;">
-                <h2>Error al iniciar el juego</h2>
-                <pre>${String(error)}</pre>
-            </div>
-        `;
-    }
+  window.gameApp.ready = true;
+  console.log("Boot del juego completado.");
 }
 
-window.addEventListener("load", function () {
-    setTimeout(initGame, 250);
+window.addEventListener("DOMContentLoaded", function () {
+  setTimeout(initGame, 1000);
 });

@@ -306,7 +306,10 @@
 
       waitForRuntimeDependencies(function () {
         var runtimeConfig = window.__ACTION_MONEY_SLOT_CONFIG || {};
-        var sslHost = getBooleanQueryParam('sslHost', runtimeConfig.sslHost);
+        var defaultSslHost = typeof runtimeConfig.sslHost === 'boolean'
+          ? runtimeConfig.sslHost
+          : window.location.protocol === 'https:';
+        var sslHost = getBooleanQueryParam('sslHost', defaultSslHost);
         var requestedSslHost = sslHost;
         var rawTcpHost = getQueryParam('tcpHost', runtimeConfig.tcpHost || window.location.hostname);
         var tcpPortParam = gptsInit.getParameterBy('tcpPort');

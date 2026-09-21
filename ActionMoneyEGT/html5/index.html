@@ -16,10 +16,54 @@
   </style>
 </head>
 <body>
-  <script src="./lib/jquery.min.js"></script>
-  <script src="./gpts.min.js"></script>
-  <script src="./device.min.js"></script>
-  <script src="../init/init_desktop_cf_test.js"></script>
+  <script>
+    (function () {
+      function ensureBootstrapErrorBox() {
+        var box = document.getElementById('runtimeError');
+        if (!box) {
+          box = document.createElement('div');
+          box.id = 'runtimeError';
+          box.setAttribute('role', 'alert');
+          box.setAttribute('aria-live', 'assertive');
+          box.setAttribute('aria-atomic', 'true');
+          box.style.position = 'fixed';
+          box.style.top = '12px';
+          box.style.left = '12px';
+          box.style.right = '12px';
+          box.style.zIndex = '99999';
+          box.style.padding = '12px 14px';
+          box.style.background = 'rgba(140,0,0,0.95)';
+          box.style.color = '#fff';
+          box.style.fontFamily = 'Arial, sans-serif';
+          box.style.fontSize = '14px';
+          box.style.lineHeight = '1.4';
+          box.style.border = '1px solid rgba(255,255,255,0.25)';
+          box.style.borderRadius = '4px';
+          document.body.appendChild(box);
+        }
+        return box;
+      }
+
+      window.__bootstrapShowError = function (message) {
+        ensureBootstrapErrorBox().textContent = message;
+      };
+
+      window.__bootstrapScriptError = function (scriptName) {
+        window.__bootstrapShowError('Falló la carga del script: ' + scriptName);
+      };
+
+      window.onerror = function (message, source) {
+        var scriptName = source ? String(source).split('/').pop() : '';
+        var scriptDetail = scriptName ? ' (' + scriptName + ')' : '';
+        window.__bootstrapShowError('Error de runtime' + scriptDetail + ': ' + message);
+        return false;
+      };
+    })();
+  </script>
+  <script src="./lib/jquery.min.js" onerror="window.__bootstrapScriptError('lib/jquery.min.js')"></script>
+  <script src="./device.min.js" onerror="window.__bootstrapScriptError('device.min.js')"></script>
+  <script src="../init/init_desktop_cf_test.js" onerror="window.__bootstrapScriptError('init_desktop_cf_test.js')"></script>
+  <script src="./options.js" onerror="window.__bootstrapScriptError('options.js')"></script>
   <script>
     (function () {
       function showRuntimeError(message) {
@@ -210,42 +254,47 @@
         return String(hostname || '').replace(/^\[/, '').replace(/\]$/, '');
       }
 
-      if (typeof gptsInit === 'undefined' || typeof initDesktopHtml !== 'function') {
-        showRuntimeError('No se pudo inicializar el runtime: faltan scripts base del bootstrap.');
-        return;
+      function getMissingRuntimeDependencies() {
+        var missing = [];
+        if (!window.jQuery) missing.push('jQuery');
+        if (!window.gptsInit) missing.push('gptsInit');
+        if (!window.gptsOptions) missing.push('gptsOptions');
+        if (typeof initDesktopHtml !== 'function') missing.push('initDesktopHtml');
+        return missing;
       }
 
-      var sslHost = getBooleanQueryParam('sslHost', window.location.protocol === 'https:');
-      var requestedSslHost = sslHost;
-      var rawTcpHost = getQueryParam('tcpHost', window.location.hostname);
-      var tcpPortParam = gptsInit.getParameterBy('tcpPort');
-      var hasExplicitTcpPort = tcpPortParam !== null && tcpPortParam !== '';
-      var rawTcpPort = hasExplicitTcpPort ? tcpPortParam : (sslHost ? '443' : '80');
-      var socketConfig = normalizeSocketConfig(rawTcpHost, rawTcpPort, sslHost, hasExplicitTcpPort);
-      var gameName = getQueryParam('gameName', getQueryParam('game', 'ActionMoneySlot'));
-      if (socketConfig.error) {
-        showRuntimeError(socketConfig.error);
-        return;
-      }
-      sslHost = socketConfig.sslHost;
-      var tcpHost = socketConfig.host;
-      var tcpPort = socketConfig.port;
-      var wsEndpoint = socketConfig.wsEndpoint;
-      var hasOpenedSocket = false;
+      function waitForRuntimeDependencies(onReady) {
+        var maxChecks = 200;
+        var checkDelay = 50;
+        var checks = 0;
 
-      window.gameName = gameName;
-      console.info('[ActionMoneySlot] WebSocket endpoint:', wsEndpoint);
-      showRuntimeValidation(
-        'WebSocket normalizado: ' + wsEndpoint + (socketConfig.warnings.length ? ' — ' + socketConfig.warnings.join(' ') : ''),
-        socketConfig.warnings.length > 0
-      );
-      if (socketConfig.warnings.length > 0) {
-        console.warn('[ActionMoneySlot] WebSocket normalization:', socketConfig.warnings.join(' '));
+        (function waitForDependencies() {
+          var missing = getMissingRuntimeDependencies();
+          if (!missing.length) {
+            onReady();
+            return;
+          }
+
+          checks += 1;
+          if (checks >= maxChecks) {
+            showRuntimeError('No se pudo inicializar el runtime: faltan dependencias (' + missing.join(', ') + ').');
+            return;
+          }
+
+          setTimeout(waitForDependencies, checkDelay);
+        })();
       }
 
       window.addEventListener('error', function (event) {
-        if (event && event.message) {
-          showRuntimeError('Error de runtime: ' + event.message);
+        if (
+          event
+          && event.target
+          && event.target !== window
+          && event.target.tagName === 'SCRIPT'
+          && !event.message
+        ) {
+          var scriptSource = event.target.getAttribute('src') || event.filename || 'desconocido';
+          showRuntimeError('Falló la carga del script: ' + scriptSource);
         }
       });
 
@@ -254,50 +303,113 @@
         showRuntimeError('Error asíncrono de runtime: ' + reason);
       });
 
-      if (typeof window.WebSocket === 'function') {
-        var NativeWebSocket = window.WebSocket;
-        window.WebSocket = function (url, protocols) {
-          var resolvedUrl = (isBootstrapSocketUrl(url, requestedSslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, '/')
-            || isBootstrapSocketUrl(url, sslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, '/'))
-            ? wsEndpoint
-            : url;
-          var socket = protocols === undefined ? new NativeWebSocket(resolvedUrl) : new NativeWebSocket(resolvedUrl, protocols);
-          socket.addEventListener('open', function () {
-            hasOpenedSocket = true;
-          });
-          socket.addEventListener('error', function () {
-            showRuntimeError('Falló la conexión WebSocket con ' + wsEndpoint + '. Revisa tcpHost/tcpPort/sslHost.');
-          });
-          socket.addEventListener('close', function () {
-            if (!hasOpenedSocket) {
-              showRuntimeError('No se pudo abrir WebSocket en ' + wsEndpoint + '.');
-            }
-          });
-          return socket;
-        };
-        window.WebSocket.prototype = NativeWebSocket.prototype;
-      }
-
-      setTimeout(function () {
-        if (!hasOpenedSocket) {
-          showRuntimeError('La conexión WebSocket sigue sin abrirse después de 15s: ' + wsEndpoint);
+      waitForRuntimeDependencies(function () {
+        var sslHost = getBooleanQueryParam('sslHost', window.location.protocol === 'https:');
+        var requestedSslHost = sslHost;
+        var rawTcpHost = getQueryParam('tcpHost', window.location.hostname);
+        var tcpPortParam = gptsInit.getParameterBy('tcpPort');
+        var hasExplicitTcpPort = tcpPortParam !== null && tcpPortParam !== '';
+        var rawTcpPort = hasExplicitTcpPort ? tcpPortParam : (sslHost ? '443' : '80');
+        var socketConfig = normalizeSocketConfig(rawTcpHost, rawTcpPort, sslHost, hasExplicitTcpPort);
+        var gameName = getQueryParam('gameName', getQueryParam('game', 'ActionMoneySlot'));
+        if (socketConfig.error) {
+          showRuntimeError(socketConfig.error);
+          return;
         }
-      }, 15000);
+        sslHost = socketConfig.sslHost;
+        var tcpHost = socketConfig.host;
+        var tcpPort = socketConfig.port;
+        var wsEndpoint = socketConfig.wsEndpoint;
+        var hasOpenedSocket = false;
+        var socketWatchdogId = null;
+        var hasAttemptedSocket = false;
 
-      try {
-        initDesktopHtml({
-          sslHost: sslHost,
-          tcpHost: tcpHost,
-          tcpPort: tcpPort,
-          gameName: gameName,
-          game: gameName,
-          language: getQueryParam('language', 'en'),
-          currency: getQueryParam('currency', 'EUR'),
-          token: getQueryParam('token', 'local-test-token')
+        window.gameName = gameName;
+        console.info('[ActionMoneySlot] WebSocket endpoint:', wsEndpoint);
+        showRuntimeValidation(
+          'WebSocket normalizado: ' + wsEndpoint + (socketConfig.warnings.length ? ' — ' + socketConfig.warnings.join(' ') : ''),
+          socketConfig.warnings.length > 0
+        );
+        if (socketConfig.warnings.length > 0) {
+          console.warn('[ActionMoneySlot] WebSocket normalization:', socketConfig.warnings.join(' '));
+        }
+
+        if (typeof window.WebSocket === 'function') {
+          var NativeWebSocket = window.WebSocket;
+          var WrappedWebSocket = function (url, protocols) {
+            var resolvedUrl = (isBootstrapSocketUrl(url, requestedSslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, '/')
+              || isBootstrapSocketUrl(url, sslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, '/'))
+              ? wsEndpoint
+              : url;
+            var socket = protocols === undefined ? new NativeWebSocket(resolvedUrl) : new NativeWebSocket(resolvedUrl, protocols);
+            if (!hasAttemptedSocket) {
+              hasAttemptedSocket = true;
+              socketWatchdogId = setTimeout(function () {
+                if (!hasOpenedSocket) {
+                  showRuntimeError('La conexión WebSocket sigue sin abrirse después de 15s: ' + wsEndpoint);
+                }
+              }, 15000);
+            }
+            try {
+              Object.defineProperty(socket, 'constructor', { value: WrappedWebSocket });
+            } catch (ignore) {}
+            var didReportConnectionFailure = false;
+            socket.addEventListener('open', function () {
+              hasOpenedSocket = true;
+              if (socketWatchdogId !== null) {
+                clearTimeout(socketWatchdogId);
+                socketWatchdogId = null;
+              }
+            });
+            socket.addEventListener('error', function () {
+              if (!didReportConnectionFailure) {
+                didReportConnectionFailure = true;
+                showRuntimeError('Falló la conexión WebSocket con ' + wsEndpoint + '. Revisa tcpHost/tcpPort/sslHost.');
+              }
+            });
+            socket.addEventListener('close', function () {
+              if (!hasOpenedSocket && !didReportConnectionFailure) {
+                didReportConnectionFailure = true;
+                showRuntimeError('No se pudo abrir WebSocket en ' + wsEndpoint + '.');
+              }
+            });
+            return socket;
+          };
+          WrappedWebSocket.prototype = NativeWebSocket.prototype;
+          try {
+            Object.defineProperty(WrappedWebSocket.prototype, 'constructor', {
+              value: WrappedWebSocket,
+              writable: true,
+              configurable: true
+            });
+          } catch (ignore) {}
+          if (typeof Object.setPrototypeOf === 'function') {
+            Object.setPrototypeOf(WrappedWebSocket, NativeWebSocket);
+          }
+          Object.getOwnPropertyNames(NativeWebSocket).forEach(function (name) {
+            if (name === 'prototype') return;
+            try {
+              Object.defineProperty(WrappedWebSocket, name, Object.getOwnPropertyDescriptor(NativeWebSocket, name));
+            } catch (ignore) {}
+          });
+          window.WebSocket = WrappedWebSocket;
+        }
+
+        try {
+          initDesktopHtml({
+            sslHost: sslHost,
+            tcpHost: tcpHost,
+            tcpPort: tcpPort,
+            gameName: gameName,
+            game: gameName,
+            language: getQueryParam('language', 'en'),
+            currency: getQueryParam('currency', 'EUR'),
+            token: getQueryParam('token', 'local-test-token')
+          });
+        } catch (error) {
+          showRuntimeError('Falló la inicialización: ' + (error && error.message ? error.message : String(error)));
+        }
         });
-      } catch (error) {
-        showRuntimeError('Falló la inicialización: ' + (error && error.message ? error.message : String(error)));
-      }
     })();
   </script>
 </body>

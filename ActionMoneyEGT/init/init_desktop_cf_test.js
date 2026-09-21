@@ -2,8 +2,17 @@ var gptsInit = {
     loadScript: function (src, onComplete, query) {
         // with script injection, async is true by default
         var script = document.createElement('script');
+        var fullSrc = src + this.getQueryString(query)
         script.onload = onComplete
-        script.setAttribute('src', src + this.getQueryString(query));
+        script.onerror = function () {
+            var message = 'Falló la carga del script: ' + fullSrc
+            if (typeof window.__bootstrapShowError === 'function') {
+                window.__bootstrapShowError(message)
+            } else {
+                console.error(message)
+            }
+        }
+        script.setAttribute('src', fullSrc);
         var head = document.getElementsByTagName('head')[0]
         head.appendChild(script);
     },
@@ -107,7 +116,7 @@ var wsPref="ws://";
 	params.tcpHost = wsPref + params.tcpHost;
 	
 
-    gptsInit.loadScript('options.js', function () {
+    function continueBoot() {
         gptsInit.loadCSS('platform.css', function () {
             gptsInit.loadQueues(gptsOptions.queues, function () {
                 gpts.start(function () {
@@ -116,5 +125,11 @@ var wsPref="ws://";
                 })
             })
         }, {build: gptsOptions.build})
-    }, {gyCacheBusterID: new Date().getTime()})
+    }
+
+    if (window.gptsOptions) {
+        continueBoot()
+    } else {
+        gptsInit.loadScript('options.js', continueBoot, {gyCacheBusterID: new Date().getTime()})
+    }
 }

@@ -353,6 +353,7 @@
             try {
               Object.defineProperty(socket, 'constructor', { value: WrappedWebSocket });
             } catch (ignore) {}
+            var didReportConnectionFailure = false;
             socket.addEventListener('open', function () {
               hasOpenedSocket = true;
               if (socketWatchdogId !== null) {
@@ -361,16 +362,27 @@
               }
             });
             socket.addEventListener('error', function () {
-              showRuntimeError('Falló la conexión WebSocket con ' + wsEndpoint + '. Revisa tcpHost/tcpPort/sslHost.');
+              if (!didReportConnectionFailure) {
+                didReportConnectionFailure = true;
+                showRuntimeError('Falló la conexión WebSocket con ' + wsEndpoint + '. Revisa tcpHost/tcpPort/sslHost.');
+              }
             });
             socket.addEventListener('close', function () {
-              if (!hasOpenedSocket) {
+              if (!hasOpenedSocket && !didReportConnectionFailure) {
+                didReportConnectionFailure = true;
                 showRuntimeError('No se pudo abrir WebSocket en ' + wsEndpoint + '.');
               }
             });
             return socket;
           };
           WrappedWebSocket.prototype = NativeWebSocket.prototype;
+          try {
+            Object.defineProperty(WrappedWebSocket.prototype, 'constructor', {
+              value: WrappedWebSocket,
+              writable: true,
+              configurable: true
+            });
+          } catch (ignore) {}
           if (typeof Object.setPrototypeOf === 'function') {
             Object.setPrototypeOf(WrappedWebSocket, NativeWebSocket);
           }

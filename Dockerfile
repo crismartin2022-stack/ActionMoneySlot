@@ -8,5 +8,6 @@ RUN npm install --omit=dev
 COPY . .
 
 EXPOSE 8080
+ENV HOST=0.0.0.0
 
-CMD ["sh", "-c", "http-server . -p ${PORT:-8080} -c-1"]
+CMD ["node", "scripts/start-server.js"]

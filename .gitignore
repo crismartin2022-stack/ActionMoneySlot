@@ -1,5 +1,8 @@
 node_modules/
 _dist/
 _actionmoney_extracted/
-.DS_Store
+*.log
 npm-debug.log*
+yarn-error.log*
+.DS_Store
+.env

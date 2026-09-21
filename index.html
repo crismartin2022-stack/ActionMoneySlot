@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ActionMoneySlot - EGT</title>
     <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/platform.css" />
   </head>
   <body>
     <div id="game-container">
@@ -14,13 +15,19 @@
           <div class="progress-fill"></div>
         </div>
       </div>
+      <noscript>
+        <p>Este juego requiere JavaScript habilitado para ejecutarse.</p>
+      </noscript>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/5.3.7/pixi.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-
+    <script src="assets/vendor/pixi.min.js" defer></script>
+    <script src="assets/vendor/gsap.min.js" defer></script>
+    <script src="assets/vendor/jquery.min.js" defer></script>
+    <script src="device.min.js" defer></script>
     <script src="Config.js" defer></script>
+    <script src="BonusAnimation.min.js" defer></script>
+    <script src="FreespinAnimation.min.js" defer></script>
+    <script src="Game.min.js" defer></script>
     <script src="main.js" defer></script>
   </body>
 </html>

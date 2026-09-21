@@ -163,7 +163,7 @@
       }
 
       function isBootstrapSocketUrl(url, expectedProtocol, expectedHost, expectedPort) {
-        var isUrlObject = url instanceof URL;
+        var isUrlObject = url && typeof url === 'object' && typeof url.href === 'string';
         if (typeof url !== 'string' && !isUrlObject) {
           return false;
         }

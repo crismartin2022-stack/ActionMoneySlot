@@ -80,6 +80,10 @@
           return { error: 'tcpHost no puede estar vacío.' };
         }
 
+        if (/^[a-z][a-z0-9+.-]*:/i.test(hostInput) && !/^[a-z][a-z0-9+.-]*:\/\//i.test(hostInput)) {
+          return { error: 'tcpHost solo acepta host[:puerto] o URLs ws/wss. Valor recibido: ' + hostInput };
+        }
+
         if (hasExtraUrlParts(hostInput)) {
           return { error: 'tcpHost debe contener solo host[:puerto], sin path ni query. Valor recibido: ' + hostInput };
         }

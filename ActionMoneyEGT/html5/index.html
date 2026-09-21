@@ -142,6 +142,9 @@
         var urlString = String(url);
         try {
           var parsedUrl = new URL(urlString);
+          if (parsedUrl.protocol !== 'ws:' && parsedUrl.protocol !== 'wss:') {
+            return false;
+          }
           var effectivePort = parsedUrl.port || (parsedUrl.protocol === 'wss:' ? '443' : '80');
           return parsedUrl.protocol === expectedProtocol
             && normalizeHostname(parsedUrl.hostname) === normalizeHostname(expectedHost)

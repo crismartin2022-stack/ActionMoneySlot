@@ -171,6 +171,12 @@
         return String(hostname || '').replace(/^\[/, '').replace(/\]$/, '');
       }
 
+      function buildSocketUrl(sslHost, host, port) {
+        var protocol = sslHost ? 'wss://' : 'ws://';
+        var defaultPort = sslHost ? '443' : '80';
+        return protocol + host + (String(port) !== defaultPort ? ':' + port : '');
+      }
+
       if (typeof gptsInit === 'undefined' || typeof initDesktopHtml !== 'function') {
         showRuntimeError('No se pudo inicializar el runtime: faltan scripts base del bootstrap.');
         return;
@@ -190,8 +196,8 @@
       var tcpHost = socketConfig.host;
       var tcpPort = socketConfig.port;
       var wsEndpoint = socketConfig.wsEndpoint;
-      var bootstrapSocketUrl = (sslHost ? 'wss://' : 'ws://') + tcpHost + ':' + tcpPort;
-      var requestedBootstrapSocketUrl = (requestedSslHost ? 'wss://' : 'ws://') + tcpHost + ':' + tcpPort;
+      var bootstrapSocketUrl = buildSocketUrl(sslHost, tcpHost, tcpPort);
+      var requestedBootstrapSocketUrl = buildSocketUrl(requestedSslHost, tcpHost, tcpPort);
       var hasOpenedSocket = false;
 
       window.gameName = gameName;

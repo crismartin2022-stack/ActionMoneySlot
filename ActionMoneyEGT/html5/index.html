@@ -24,11 +24,13 @@
     (function () {
       function showRuntimeError(message) {
         var errorBox = ensureRuntimeMessageBox('runtimeError', 12, 'rgba(140,0,0,0.95)');
+        errorBox.textContent = '';
         errorBox.textContent = message;
       }
 
       function showRuntimeValidation(message, isWarning) {
         var validationBox = ensureRuntimeMessageBox('runtimeValidation', 92, isWarning ? 'rgba(120,80,0,0.95)' : 'rgba(0,90,0,0.95)');
+        validationBox.textContent = '';
         validationBox.textContent = message;
       }
 
@@ -39,6 +41,7 @@
           box.id = id;
           box.setAttribute('role', id === 'runtimeError' ? 'alert' : 'status');
           box.setAttribute('aria-live', id === 'runtimeError' ? 'assertive' : 'polite');
+          box.setAttribute('aria-atomic', 'true');
           box.style.position = 'fixed';
           box.style.top = top + 'px';
           box.style.left = '12px';
@@ -84,7 +87,11 @@
           return { error: 'tcpHost solo acepta host[:puerto] o URLs ws/wss. Valor recibido: ' + hostInput };
         }
 
-        if (hasExtraUrlParts(hostInput)) {
+        if (!hasExplicitScheme && isBareIpv6Host(hostInput)) {
+          hostWithScheme = '[' + hostInput + ']';
+        }
+
+        if (hasExtraUrlParts(hostWithScheme)) {
           return { error: 'tcpHost debe contener solo host[:puerto], sin path ni query. Valor recibido: ' + hostInput };
         }
 
@@ -160,7 +167,15 @@
         return /^[/?#]/.test(match[1] || '');
       }
 
-      function isBootstrapSocketUrl(url, expectedProtocol, expectedHost, expectedPort) {
+      function isBareIpv6Host(hostInput) {
+        return typeof hostInput === 'string'
+          && hostInput.indexOf('[') === -1
+          && hostInput.indexOf(']') === -1
+          && (hostInput.match(/:/g) || []).length >= 2
+          && !/[/?#]/.test(hostInput);
+      }
+
+      function isBootstrapSocketUrl(url, expectedProtocol, expectedHost, expectedPort, expectedPath) {
         var isUrlObject = url && typeof url === 'object' && typeof url.href === 'string';
         if (typeof url !== 'string' && !isUrlObject) {
           return false;
@@ -178,7 +193,8 @@
           var effectivePort = parsedUrl.port || (parsedUrl.protocol === 'wss:' ? '443' : '80');
           return parsedUrl.protocol === expectedProtocol
             && normalizeHostname(parsedUrl.hostname) === normalizeHostname(expectedHost)
-            && effectivePort === expectedPort;
+            && effectivePort === expectedPort
+            && parsedUrl.pathname === expectedPath;
         } catch (error) {
           return false;
         }
@@ -235,8 +251,8 @@
       if (typeof window.WebSocket === 'function') {
         var NativeWebSocket = window.WebSocket;
         window.WebSocket = function (url, protocols) {
-          var resolvedUrl = (isBootstrapSocketUrl(url, requestedSslHost ? 'wss:' : 'ws:', tcpHost, tcpPort)
-            || isBootstrapSocketUrl(url, sslHost ? 'wss:' : 'ws:', tcpHost, tcpPort))
+          var resolvedUrl = (isBootstrapSocketUrl(url, requestedSslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, '/')
+            || isBootstrapSocketUrl(url, sslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, '/'))
             ? wsEndpoint
             : url;
           var socket = protocols === undefined ? new NativeWebSocket(resolvedUrl) : new NativeWebSocket(resolvedUrl, protocols);

@@ -1,34 +1,40 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ActionMoneySlot</title>
   <style>
-    html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+    }
   </style>
 </head>
 <body>
-  <script src="../js/jquery.js"></script>
+  <script src="./lib/jquery.min.js"></script>
+  <script src="./gpts.min.js"></script>
+  <script src="./device.min.js"></script>
   <script src="../init/init_desktop_cf_test.js"></script>
   <script>
     (function () {
-      function getQueryParam(key, fallback) {
-        var value = new URLSearchParams(window.location.search).get(key);
+      function getQueryParam(name, fallback) {
+        var value = gptsInit.getParameterBy(name);
         return value === null || value === '' ? fallback : value;
       }
 
-      var config = {
+      initDesktopHtml({
         sslHost: getQueryParam('sslHost', 'false') === 'true',
-        tcpHost: getQueryParam('tcpHost', '127.0.0.1:3001'),
+        tcpHost: getQueryParam('tcpHost', window.location.hostname + ':3001'),
         game: getQueryParam('game', 'ActionMoneySlot'),
         language: getQueryParam('language', 'en'),
         currency: getQueryParam('currency', 'EUR'),
         token: getQueryParam('token', 'local-test-token')
-      };
-
-      initDesktopHtml(config);
+      });
     })();
   </script>
 </body>

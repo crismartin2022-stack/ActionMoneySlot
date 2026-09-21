@@ -1,13 +1,11 @@
 # ActionMoneySlot
 
-Repositorio estático del bundle HTML5 de ActionMoneySlot.
+Restauración del bundle HTML5 real de `actionmoney.zip`, servido directamente desde la raíz del repositorio.
 
-## Estado actual
+## Origen del juego
 
-- `npm install` y `npm start` funcionan desde la raíz del repositorio.
-- El proyecto sirve el contenido local en el puerto `8080` por defecto.
-- El entry point ahora intenta arrancar el bootstrap real del juego antes de caer en una vista de diagnóstico.
-- Este clon **no incluye** `lib/gamy.min.js` ni `lib/egt-library.min.js`, por lo que el runtime EGT completo no puede inicializarse sin esos archivos.
+- `actionmoney.zip` se conserva como fuente original del paquete.
+- El contenido ejecutable del juego se rehidrató desde ese ZIP en una estructura web limpia para que el arranque funcione desde la raíz del repo.
 
 ## Arranque local
 
@@ -16,53 +14,73 @@ npm install
 npm start
 ```
 
-Abrir:
+Abrir en el navegador:
 
 ```text
 http://localhost:8080
 ```
 
-También puedes cambiar el puerto:
+Puerto alternativo:
 
 ```bash
 PORT=3000 npm start
 ```
 
+## Entry point real
+
+- `index.html` carga el bootstrap web desde la raíz.
+- `main.js` inicia `initDesktopHtml(...)`.
+- `Config.js` define la configuración de arranque por defecto para el runtime EGT.
+- `init/init_desktop_cf_test.js`, `options.js` y `gpts.min.js` provienen del ZIP original.
+
 ## Estructura relevante
 
 ```text
 .
+├── actionmoney.zip
 ├── assets/
-├── css/
-├── scripts/
-│   ├── cleanup_actionmoney.py
-│   └── start-server.js
-├── BonusAnimation.min.js
+├── games/
+│   ├── ActionMoneySlot/
+│   └── commonAssets/
+├── init/
+├── js/
+├── lib/
 ├── Config.js
 ├── content.json
-├── FreespinAnimation.min.js
-├── Game.min.js
+├── device.min.js
 ├── gpts.min.js
 ├── index.html
 ├── main.js
 ├── options.js
-├── package.json
-└── README.md
+├── platform.css
+└── scripts/start-server.js
 ```
 
-## Limitación importante
+## Parámetros opcionales
 
-El repositorio contiene assets, configuración y bundles del juego, pero faltan librerías propietarias del engine EGT requeridas por `gpts.min.js`. Mientras no estén presentes en `lib/`, la app mostrará un diagnóstico útil en lugar de fallar silenciosamente.
+Se pueden sobrescribir desde query string:
+
+- `sessionKey`
+- `tcpHost`
+- `tcpPort`
+- `lang`
+- `sslHost`
+- `gameName`
+
+Ejemplo:
+
+```text
+http://localhost:8080/?lang=es&sslHost=true
+```
+
+## Limitaciones
+
+- El juego arranca con parámetros demo por defecto del runtime incluido en el bundle.
+- La jugabilidad completa depende de que el endpoint websocket remoto configurado siga disponible.
 
 ## Docker
 
 ```bash
 docker build -t actionmoneyslot .
 docker run -p 8080:8080 actionmoneyslot
-```
-
-Para otro puerto:
-
-```bash
-docker run -e PORT=3000 -p 3000:3000 actionmoneyslot
 ```

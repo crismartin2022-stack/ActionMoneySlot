@@ -1,43 +1,39 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>ActionMoneySlot - EGT</title>
-    <link rel="stylesheet" href="css/style.css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,height=device-height,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,minimal-ui">
+    <title>ActionMoneySlot</title>
+    <style>
+        html, body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+        }
+
+        #boot-status {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 24px;
+            box-sizing: border-box;
+        }
+    </style>
 </head>
 <body>
-    <div id="game-container">
-        <div id="loading">
-            <h2>Cargando recursos...</h2>
-            <div class="progress-bar">
-                <div class="progress-fill"></div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- 1. Carga las librerías en ORDEN -->
-    <script src="lib/pixi.min.js"></script>
-    <script src="lib/jquery.min.js"></script>
-    <script src="lib/howler.min.js"></script>
-    <script src="lib/gamy.min.js"></script>
-    <script src="lib/egt-library.min.js"></script>
-    <script src="lib/bottle.min.js"></script>
-    <script src="lib/CustomEase.min.js"></script>
-    <script src="lib/Physics2DPlugin.min.js"></script>
-    <script src="lib/TweenMax.min.js"></script>
-    <script src="lib/PureMVC.min.js"></script>
-    <script src="lib/SHA1.min.js"></script>
-    <script src="lib/webfontloader.js"></script>
-
-    <!-- 2. Carga los scripts del juego -->
+    <div id="boot-status">Loading ActionMoneySlot…</div>
+    <noscript>ActionMoneySlot requires JavaScript.</noscript>
+    <script src="js/jquery.js"></script>
+    <script src="device.min.js"></script>
     <script src="Config.js"></script>
-    <script src="content.json"></script>
-    <script src="BonusAnimation.min.js"></script>
-    <script src="FreespinAnimation.min.js"></script>
-    <script src="Game.min.js"></script>
-    
-    <!-- 3. Inicia el juego -->
+    <script src="init/init_desktop_cf_test.js"></script>
     <script src="main.js"></script>
 </body>
 </html>

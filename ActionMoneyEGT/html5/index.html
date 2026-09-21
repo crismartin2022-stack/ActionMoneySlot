@@ -172,7 +172,7 @@
       if (typeof window.WebSocket === 'function') {
         var NativeWebSocket = window.WebSocket;
         window.WebSocket = function (url, protocols) {
-          var resolvedUrl = url === bootstrapSocketUrl ? wsEndpoint : url;
+          var resolvedUrl = url === bootstrapSocketUrl || url === wsEndpoint ? wsEndpoint : url;
           var socket = protocols === undefined ? new NativeWebSocket(resolvedUrl) : new NativeWebSocket(resolvedUrl, protocols);
           socket.addEventListener('open', function () {
             hasOpenedSocket = true;

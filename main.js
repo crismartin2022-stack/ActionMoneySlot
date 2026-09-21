@@ -175,8 +175,8 @@
       '<section class="panel shell">',
       '  <div class="shell-copy">',
       '    <p class="eyebrow">ActionMoneySlot</p>',
-      "    <h1>Bundle local listo, motor propietario incompleto</h1>",
-      "    <p>El repositorio ya arranca con <code>npm start</code>, pero el juego EGT completo no puede inicializarse porque faltan librerías del engine que no están incluidas en este clon.</p>",
+      "    <h1>Bundle local listo, pero el runtime sigue incompleto</h1>",
+      "    <p>El repositorio ya arranca con <code>npm start</code>, pero el juego EGT completo no puede inicializarse mientras falten librerías del engine o archivos base del bundle.</p>",
       '    <div class="hero-actions">',
       '      <a class="button" href="assets/images/background.jpg" target="_blank" rel="noreferrer">Ver arte principal</a>',
       '      <a class="button button-secondary" href="content.json" target="_blank" rel="noreferrer">Abrir content.json</a>',
@@ -190,7 +190,7 @@
       "    <ul>",
       "      <li>Servidor estático local listo.</li>",
       "      <li>Assets principales del juego detectados.</li>",
-      "      <li>Bootstrap preparado para arrancar automáticamente cuando se agreguen las librerías faltantes.</li>",
+      "      <li>Bootstrap preparado para arrancar automáticamente cuando se repongan las dependencias faltantes.</li>",
       "    </ul>",
       "  </div>",
       "  <div>",
@@ -291,7 +291,7 @@
         });
 
         if (missingEngine.length || missingAssets.length) {
-          setStatus("El bundle quedó accesible, pero faltan dependencias para arrancar el juego completo.");
+          setStatus("El bundle quedó accesible, pero faltan archivos necesarios para arrancar el juego completo.");
           renderFallback({
             missingAssets: missingAssets,
             missingEngine: missingEngine

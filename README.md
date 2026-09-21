@@ -60,3 +60,9 @@ El repositorio contiene assets, configuración y bundles del juego, pero faltan 
 docker build -t actionmoneyslot .
 docker run -p 8080:8080 actionmoneyslot
 ```
+
+Para otro puerto:
+
+```bash
+docker run -e PORT=3000 -p 3000:3000 actionmoneyslot
+```

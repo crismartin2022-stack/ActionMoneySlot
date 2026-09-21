@@ -134,13 +134,58 @@
   }
 
   function checkAsset(path) {
-    return fetch(path, { cache: "no-store" })
-      .then(function (response) {
-        return response.ok;
-      })
-      .catch(function () {
-        return false;
-      });
+    return new Promise(function (resolve) {
+      if (/\.(png|jpg|jpeg|gif|webp)$/i.test(path)) {
+        var image = new Image();
+        image.onload = function () {
+          resolve(true);
+        };
+        image.onerror = function () {
+          resolve(false);
+        };
+        image.src = path;
+        return;
+      }
+
+      if (/\.(mp3|ogg|wav)$/i.test(path)) {
+        var audio = document.createElement("audio");
+        var onReady = function () {
+          cleanup();
+          resolve(true);
+        };
+        var onFailure = function () {
+          cleanup();
+          resolve(false);
+        };
+        var cleanup = function () {
+          audio.removeEventListener("loadedmetadata", onReady);
+          audio.removeEventListener("canplaythrough", onReady);
+          audio.removeEventListener("error", onFailure);
+        };
+
+        audio.preload = "metadata";
+        audio.addEventListener("loadedmetadata", onReady, { once: true });
+        audio.addEventListener("canplaythrough", onReady, { once: true });
+        audio.addEventListener("error", onFailure, { once: true });
+        audio.src = path;
+        audio.load();
+        return;
+      }
+
+      var request = new XMLHttpRequest();
+      request.open("GET", path, true);
+      request.onreadystatechange = function () {
+        if (request.readyState !== XMLHttpRequest.DONE) {
+          return;
+        }
+
+        resolve(request.status >= 200 && request.status < 300);
+      };
+      request.onerror = function () {
+        resolve(false);
+      };
+      request.send();
+    });
   }
 
   function getBootstrapParams() {
@@ -290,7 +335,7 @@
           missingAssets.push(result.path);
         });
 
-        if (missingEngine.length) {
+        if (missingEngine.length || missingAssets.length) {
           setStatus("El bundle quedó accesible, pero faltan archivos necesarios para arrancar el juego completo.");
           renderFallback({
             missingAssets: missingAssets,
@@ -300,18 +345,7 @@
         }
 
         setStatus("Todas las dependencias locales están presentes. Arrancando runtime…");
-        return bootRealGame().catch(function (error) {
-          if (missingAssets.length) {
-            setStatus("El runtime intentó arrancar, pero faltan assets base del bundle.");
-            renderFallback({
-              missingAssets: missingAssets,
-              missingEngine: []
-            });
-            return;
-          }
-
-          throw error;
-        });
+        return bootRealGame();
       })
       .catch(renderFatalError);
   }

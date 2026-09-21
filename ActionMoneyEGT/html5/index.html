@@ -153,23 +153,7 @@
             && !parsedUrl.search
             && !parsedUrl.hash;
         } catch (error) {
-          if (!/^wss?:\/\//i.test(urlString)) {
-            return false;
-          }
-          var canonicalUrl = canonicalizeSocketUrl(urlString);
-          return canonicalUrl === canonicalizeSocketUrl(fallbackUrl) || canonicalUrl === canonicalizeSocketUrl(normalizedUrl);
-        }
-      }
-
-      function canonicalizeSocketUrl(url) {
-        var urlString = String(url);
-        try {
-          var parsedUrl = new URL(urlString);
-          var defaultPort = parsedUrl.protocol === 'wss:' ? '443' : '80';
-          var port = parsedUrl.port && parsedUrl.port !== defaultPort ? ':' + parsedUrl.port : '';
-          return parsedUrl.protocol + '//' + normalizeHostname(parsedUrl.hostname) + port;
-        } catch (error) {
-          return urlString;
+          return false;
         }
       }
 

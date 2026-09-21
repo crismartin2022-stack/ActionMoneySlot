@@ -140,7 +140,7 @@ function sendFile(filePath, res, shouldSendBody) {
   });
 }
 
-function resolveRequestPath(requestPath) {
+function decodeRequestPath(requestPath) {
   let cleanPath;
 
   try {
@@ -150,6 +150,13 @@ function resolveRequestPath(requestPath) {
       error: 400
     };
   }
+
+  return {
+    cleanPath
+  };
+}
+
+function resolveRequestPath(cleanPath) {
 
   if (cleanPath === '/') {
     return {
@@ -184,7 +191,17 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const requestPath = (req.url || '/').split('?')[0];
+  const decodedRequestPath = decodeRequestPath(req.url);
+
+  if (decodedRequestPath.error) {
+    res.writeHead(decodedRequestPath.error, {
+      'Content-Type': 'text/plain; charset=utf-8'
+    });
+    res.end(shouldSendBody ? 'Bad Request' : undefined);
+    return;
+  }
+
+  const requestPath = decodedRequestPath.cleanPath;
 
   if (requestPath === '/health' || requestPath === '/healthz') {
     sendJson(res, 200, {
@@ -199,7 +216,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const resolvedPath = resolveRequestPath(req.url);
+  const resolvedPath = resolveRequestPath(requestPath);
 
   if (resolvedPath.redirect) {
     res.writeHead(302, {

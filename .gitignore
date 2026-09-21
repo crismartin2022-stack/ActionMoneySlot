@@ -1,5 +1,4 @@
 node_modules/
 _dist/
-_actionmoney_extracted/
 .DS_Store
 npm-debug.log*

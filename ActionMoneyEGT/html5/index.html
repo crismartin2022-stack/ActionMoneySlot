@@ -22,19 +22,107 @@
   <script src="../init/init_desktop_cf_test.js"></script>
   <script>
     (function () {
+      function showRuntimeError(message) {
+        var errorBox = document.getElementById('runtimeError');
+        if (!errorBox) {
+          errorBox = document.createElement('div');
+          errorBox.id = 'runtimeError';
+          errorBox.style.position = 'fixed';
+          errorBox.style.top = '12px';
+          errorBox.style.left = '12px';
+          errorBox.style.right = '12px';
+          errorBox.style.zIndex = '99999';
+          errorBox.style.padding = '12px 14px';
+          errorBox.style.background = 'rgba(140,0,0,0.95)';
+          errorBox.style.color = '#fff';
+          errorBox.style.fontFamily = 'Arial, sans-serif';
+          errorBox.style.fontSize = '14px';
+          errorBox.style.lineHeight = '1.4';
+          errorBox.style.border = '1px solid rgba(255,255,255,0.25)';
+          errorBox.style.borderRadius = '4px';
+          document.body.appendChild(errorBox);
+        }
+        errorBox.textContent = message;
+      }
+
       function getQueryParam(name, fallback) {
         var value = gptsInit.getParameterBy(name);
         return value === null || value === '' ? fallback : value;
       }
 
-      initDesktopHtml({
-        sslHost: getQueryParam('sslHost', 'false') === 'true',
-        tcpHost: getQueryParam('tcpHost', window.location.hostname + ':3001'),
-        game: getQueryParam('game', 'ActionMoneySlot'),
-        language: getQueryParam('language', 'en'),
-        currency: getQueryParam('currency', 'EUR'),
-        token: getQueryParam('token', 'local-test-token')
+      function getBooleanQueryParam(name, fallback) {
+        var value = gptsInit.getParameterBy(name);
+        if (value === null || value === '') return fallback;
+        return value === 'true' || value === '1';
+      }
+
+      if (typeof gptsInit === 'undefined' || typeof initDesktopHtml !== 'function') {
+        showRuntimeError('No se pudo inicializar el runtime: faltan scripts base del bootstrap.');
+        return;
+      }
+
+      var sslHost = getBooleanQueryParam('sslHost', window.location.protocol === 'https:');
+      var tcpHost = getQueryParam('tcpHost', window.location.hostname);
+      var tcpPort = getQueryParam('tcpPort', sslHost ? '443' : '80');
+      var gameName = getQueryParam('gameName', getQueryParam('game', 'ActionMoneySlot'));
+      var wsProtocol = sslHost ? 'wss://' : 'ws://';
+      var wsEndpoint = wsProtocol + tcpHost + ':' + tcpPort;
+      var hasOpenedSocket = false;
+
+      window.gameName = gameName;
+      console.info('[ActionMoneySlot] WebSocket endpoint:', wsEndpoint);
+
+      window.addEventListener('error', function (event) {
+        if (event && event.message) {
+          showRuntimeError('Error de runtime: ' + event.message);
+        }
       });
+
+      window.addEventListener('unhandledrejection', function (event) {
+        var reason = event && event.reason ? String(event.reason) : 'Promise rechazada sin detalle.';
+        showRuntimeError('Error asíncrono de runtime: ' + reason);
+      });
+
+      if (typeof window.WebSocket === 'function') {
+        var NativeWebSocket = window.WebSocket;
+        window.WebSocket = function (url, protocols) {
+          var socket = protocols === undefined ? new NativeWebSocket(url) : new NativeWebSocket(url, protocols);
+          socket.addEventListener('open', function () {
+            hasOpenedSocket = true;
+          });
+          socket.addEventListener('error', function () {
+            showRuntimeError('Falló la conexión WebSocket con ' + wsEndpoint + '. Revisa tcpHost/tcpPort/sslHost.');
+          });
+          socket.addEventListener('close', function () {
+            if (!hasOpenedSocket) {
+              showRuntimeError('No se pudo abrir WebSocket en ' + wsEndpoint + '.');
+            }
+          });
+          return socket;
+        };
+        window.WebSocket.prototype = NativeWebSocket.prototype;
+      }
+
+      setTimeout(function () {
+        if (!hasOpenedSocket) {
+          showRuntimeError('La conexión WebSocket sigue sin abrirse después de 15s: ' + wsEndpoint);
+        }
+      }, 15000);
+
+      try {
+        initDesktopHtml({
+          sslHost: sslHost,
+          tcpHost: tcpHost,
+          tcpPort: tcpPort,
+          gameName: gameName,
+          game: gameName,
+          language: getQueryParam('language', 'en'),
+          currency: getQueryParam('currency', 'EUR'),
+          token: getQueryParam('token', 'local-test-token')
+        });
+      } catch (error) {
+        showRuntimeError('Falló la inicialización: ' + (error && error.message ? error.message : String(error)));
+      }
     })();
   </script>
 </body>

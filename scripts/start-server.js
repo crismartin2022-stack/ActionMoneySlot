@@ -8,5 +8,5 @@ const server = httpServer.createServer({
 });
 
 server.listen(port, "0.0.0.0", () => {
-  console.log(`ActionMoneySlot disponible en http://0.0.0.0:${port}`);
+  console.log(`ActionMoneySlot disponible en http://localhost:${port}`);
 });

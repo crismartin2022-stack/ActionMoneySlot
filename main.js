@@ -290,7 +290,7 @@
           missingAssets.push(result.path);
         });
 
-        if (missingEngine.length || missingAssets.length) {
+        if (missingEngine.length) {
           setStatus("El bundle quedó accesible, pero faltan archivos necesarios para arrancar el juego completo.");
           renderFallback({
             missingAssets: missingAssets,
@@ -300,7 +300,18 @@
         }
 
         setStatus("Todas las dependencias locales están presentes. Arrancando runtime…");
-        return bootRealGame();
+        return bootRealGame().catch(function (error) {
+          if (missingAssets.length) {
+            setStatus("El runtime intentó arrancar, pero faltan assets base del bundle.");
+            renderFallback({
+              missingAssets: missingAssets,
+              missingEngine: []
+            });
+            return;
+          }
+
+          throw error;
+        });
       })
       .catch(renderFatalError);
   }

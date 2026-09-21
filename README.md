@@ -33,5 +33,5 @@ El servidor estático se inicia en `http://localhost:8080` (o `PORT` si está de
 
 ## Notas importantes
 
-- `actionmoney.zip` debe conservarse intacto cuando esté presente en la raíz, como fuente/origen del juego.
+- `actionmoney.zip` debe conservarse intacto cuando esté presente en la raíz, como respaldo/fuente original del paquete del juego. No es necesario para el arranque diario con `npm start`.
 - La carpeta `_actionmoney_extracted/` y `node_modules/` se ignoran por `.gitignore`.

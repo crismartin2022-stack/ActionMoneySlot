@@ -6,8 +6,7 @@ const root = path.resolve(__dirname, "..");
 
 const server = httpServer.createServer({
   root,
-  cache: -1,
-  cors: true
+  cache: -1
 });
 
 server.listen(port, "0.0.0.0", () => {

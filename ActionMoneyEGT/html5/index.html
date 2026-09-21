@@ -142,7 +142,19 @@
             && !parsedUrl.search
             && !parsedUrl.hash;
         } catch (error) {
-          return url === fallbackUrl || url === normalizedUrl;
+          var canonicalUrl = canonicalizeSocketUrl(url);
+          return canonicalUrl === canonicalizeSocketUrl(fallbackUrl) || canonicalUrl === canonicalizeSocketUrl(normalizedUrl);
+        }
+      }
+
+      function canonicalizeSocketUrl(url) {
+        try {
+          var parsedUrl = new URL(url);
+          var defaultPort = parsedUrl.protocol === 'wss:' ? '443' : '80';
+          var port = parsedUrl.port && parsedUrl.port !== defaultPort ? ':' + parsedUrl.port : '';
+          return parsedUrl.protocol + '//' + parsedUrl.hostname + port;
+        } catch (error) {
+          return url;
         }
       }
 

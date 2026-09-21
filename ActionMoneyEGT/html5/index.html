@@ -136,7 +136,7 @@
           var parsedUrl = new URL(url);
           var effectivePort = parsedUrl.port || (parsedUrl.protocol === 'wss:' ? '443' : '80');
           return parsedUrl.protocol === expectedProtocol
-            && parsedUrl.hostname === expectedHost
+            && normalizeHostname(parsedUrl.hostname) === normalizeHostname(expectedHost)
             && effectivePort === expectedPort
             && (!parsedUrl.pathname || parsedUrl.pathname === '/')
             && !parsedUrl.search
@@ -152,10 +152,14 @@
           var parsedUrl = new URL(url);
           var defaultPort = parsedUrl.protocol === 'wss:' ? '443' : '80';
           var port = parsedUrl.port && parsedUrl.port !== defaultPort ? ':' + parsedUrl.port : '';
-          return parsedUrl.protocol + '//' + parsedUrl.hostname + port;
+          return parsedUrl.protocol + '//' + normalizeHostname(parsedUrl.hostname) + port;
         } catch (error) {
           return url;
         }
+      }
+
+      function normalizeHostname(hostname) {
+        return String(hostname || '').replace(/^\[/, '').replace(/\]$/, '');
       }
 
       if (typeof gptsInit === 'undefined' || typeof initDesktopHtml !== 'function') {

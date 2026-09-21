@@ -157,7 +157,8 @@ function resolveRequestPath(requestPath) {
     };
   }
 
-  const normalizedPath = path.normalize(path.join(ROOT, cleanPath));
+  const relativeRequestPath = cleanPath.replace(/^\/+/, '');
+  const normalizedPath = path.normalize(path.join(ROOT, relativeRequestPath));
   const relativePath = path.relative(ROOT, normalizedPath);
 
   if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {

@@ -75,7 +75,7 @@ function Config()
 ];
 
 
-    this.reelImages = ["reelImages.json"];
+    this.reelImages = ["assets/images/reelImages.json"];
 
     this.linesCoords = [
         {coords:[184,320, 1095,320], color:0xfff221},

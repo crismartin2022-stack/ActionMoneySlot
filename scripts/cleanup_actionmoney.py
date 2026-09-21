@@ -86,7 +86,13 @@ def extract_zip(zip_path: Path, destination: Path, apply_changes: bool, overwrit
         if apply_changes:
             destination.mkdir(parents=True, exist_ok=True)
             for member in members:
-                archive.extract(member, destination)
+                target_path = (destination / member.filename).resolve()
+                if member.is_dir():
+                    target_path.mkdir(parents=True, exist_ok=True)
+                    continue
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(member, "r") as source, target_path.open("wb") as output:
+                    shutil.copyfileobj(source, output)
         else:
             print(f"[dry-run] Archivos a extraer: {len(members)}")
 
@@ -153,7 +159,7 @@ def main() -> int:
             apply_changes=args.apply,
             overwrite=args.overwrite,
         )
-    except (ValueError, FileExistsError) as error:
+    except (ValueError, FileExistsError, zipfile.BadZipFile, OSError) as error:
         print(str(error), file=sys.stderr)
         return 1
 

@@ -4,7 +4,7 @@
   "description": "EGT ActionMoneySlot Game",
   "main": "main.js",
   "scripts": {
-    "start": "npx http-server . -p ${PORT:-8080} -c-1",
+    "start": "node scripts/start-server.js",
     "check:js": "node --check Config.js && node --check main.js",
     "check:extract": "python3 scripts/cleanup_actionmoney.py"
   },

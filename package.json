@@ -2,6 +2,10 @@
   "name": "actionmoneyslot",
   "version": "1.3.0",
   "description": "EGT ActionMoneySlot Game",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "main": "index.html",
   "scripts": {
     "start": "npx http-server . -p 8080 -c-1",

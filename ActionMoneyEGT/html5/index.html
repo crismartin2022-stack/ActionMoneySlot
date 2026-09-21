@@ -131,6 +131,21 @@
         }
       }
 
+      function isBootstrapSocketUrl(url, expectedProtocol, expectedHost, expectedPort, fallbackUrl, normalizedUrl) {
+        try {
+          var parsedUrl = new URL(url);
+          var effectivePort = parsedUrl.port || (parsedUrl.protocol === 'wss:' ? '443' : '80');
+          return parsedUrl.protocol === expectedProtocol
+            && parsedUrl.hostname === expectedHost
+            && effectivePort === expectedPort
+            && (!parsedUrl.pathname || parsedUrl.pathname === '/')
+            && !parsedUrl.search
+            && !parsedUrl.hash;
+        } catch (error) {
+          return url === fallbackUrl || url === normalizedUrl;
+        }
+      }
+
       if (typeof gptsInit === 'undefined' || typeof initDesktopHtml !== 'function') {
         showRuntimeError('No se pudo inicializar el runtime: faltan scripts base del bootstrap.');
         return;
@@ -175,7 +190,9 @@
       if (typeof window.WebSocket === 'function') {
         var NativeWebSocket = window.WebSocket;
         window.WebSocket = function (url, protocols) {
-          var resolvedUrl = url === bootstrapSocketUrl || url === wsEndpoint ? wsEndpoint : url;
+          var resolvedUrl = isBootstrapSocketUrl(url, sslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, bootstrapSocketUrl, wsEndpoint)
+            ? wsEndpoint
+            : url;
           var socket = protocols === undefined ? new NativeWebSocket(resolvedUrl) : new NativeWebSocket(resolvedUrl, protocols);
           socket.addEventListener('open', function () {
             hasOpenedSocket = true;

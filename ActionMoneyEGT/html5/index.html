@@ -61,17 +61,9 @@
     })();
   </script>
   <script src="./lib/jquery.min.js" onerror="window.__bootstrapScriptError('lib/jquery.min.js')"></script>
-  <script src="./lib/pixi.min.js" onerror="window.__bootstrapScriptError('lib/pixi.min.js')"></script>
-  <script src="./lib/sha1.min.js" onerror="window.__bootstrapScriptError('lib/sha1.min.js')"></script>
-  <script src="./lib/puremvc.min.js" onerror="window.__bootstrapScriptError('lib/puremvc.min.js')"></script>
-  <script src="./lib/gamy.min.js" onerror="window.__bootstrapScriptError('lib/gamy.min.js')"></script>
-  <script src="./lib/bottle.min.js" onerror="window.__bootstrapScriptError('lib/bottle.min.js')"></script>
-  <script src="./lib/egt-library.min.js" onerror="window.__bootstrapScriptError('lib/egt-library.min.js')"></script>
-  <script src="./lib/TweenMax.min.js" onerror="window.__bootstrapScriptError('lib/TweenMax.min.js')"></script>
-  <script src="./lib/howler.min.js" onerror="window.__bootstrapScriptError('lib/howler.min.js')"></script>
   <script src="./device.min.js" onerror="window.__bootstrapScriptError('device.min.js')"></script>
-  <script src="./gpts.min.js" onerror="window.__bootstrapScriptError('gpts.min.js')"></script>
   <script src="../init/init_desktop_cf_test.js" onerror="window.__bootstrapScriptError('init_desktop_cf_test.js')"></script>
+  <script src="./options.js" onerror="window.__bootstrapScriptError('options.js')"></script>
   <script>
     (function () {
       function showRuntimeError(message) {
@@ -265,11 +257,8 @@
       function getMissingRuntimeDependencies() {
         var missing = [];
         if (!window.jQuery) missing.push('jQuery');
-        if (!window.PIXI) missing.push('PIXI');
-        if (!window.gamy) missing.push('gamy');
-        if (!window.puremvc) missing.push('puremvc');
-        if (!window.gpts) missing.push('gpts');
         if (!window.gptsInit) missing.push('gptsInit');
+        if (!window.gptsOptions) missing.push('gptsOptions');
         if (typeof initDesktopHtml !== 'function') missing.push('initDesktopHtml');
         return missing;
       }
@@ -345,12 +334,15 @@
 
         if (typeof window.WebSocket === 'function') {
           var NativeWebSocket = window.WebSocket;
-          window.WebSocket = function (url, protocols) {
+          var WrappedWebSocket = function (url, protocols) {
             var resolvedUrl = (isBootstrapSocketUrl(url, requestedSslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, '/')
               || isBootstrapSocketUrl(url, sslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, '/'))
               ? wsEndpoint
               : url;
             var socket = protocols === undefined ? new NativeWebSocket(resolvedUrl) : new NativeWebSocket(resolvedUrl, protocols);
+            try {
+              Object.defineProperty(socket, 'constructor', { value: WrappedWebSocket });
+            } catch (ignore) {}
             socket.addEventListener('open', function () {
               hasOpenedSocket = true;
             });
@@ -364,11 +356,12 @@
             });
             return socket;
           };
-          window.WebSocket.prototype = NativeWebSocket.prototype;
-          window.WebSocket.CONNECTING = NativeWebSocket.CONNECTING;
-          window.WebSocket.OPEN = NativeWebSocket.OPEN;
-          window.WebSocket.CLOSING = NativeWebSocket.CLOSING;
-          window.WebSocket.CLOSED = NativeWebSocket.CLOSED;
+          WrappedWebSocket.prototype = NativeWebSocket.prototype;
+          WrappedWebSocket.CONNECTING = NativeWebSocket.CONNECTING;
+          WrappedWebSocket.OPEN = NativeWebSocket.OPEN;
+          WrappedWebSocket.CLOSING = NativeWebSocket.CLOSING;
+          WrappedWebSocket.CLOSED = NativeWebSocket.CLOSED;
+          window.WebSocket = WrappedWebSocket;
         }
 
         setTimeout(function () {

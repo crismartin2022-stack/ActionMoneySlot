@@ -160,6 +160,9 @@
       }
 
       function isBootstrapSocketUrl(url, expectedProtocol, expectedHost, expectedPort) {
+        if (typeof url !== 'string' && !(url instanceof URL)) {
+          return false;
+        }
         try {
           var websocketBase = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host;
           var parsedUrl = new URL(url, websocketBase);

@@ -2,34 +2,26 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>ActionMoneySlot - EGT</title>
     <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-    <div id="game-container" aria-live="polite">
-        <div id="loading" class="panel">
-            <p class="eyebrow">ActionMoneySlot</p>
-            <h1>Preparando el bootstrap del juego</h1>
-            <p id="boot-message">
-                Verificando dependencias, assets y runtime del bundle HTML5.
-            </p>
-            <div class="progress-bar" aria-hidden="true">
+    <div id="game-container">
+        <div id="loading">
+            <h2>Cargando recursos...</h2>
+            <div class="progress-bar">
                 <div class="progress-fill"></div>
             </div>
         </div>
     </div>
-
-    <!-- 1. Carga las librerías base (Pixi, jQuery, etc.) -->
+    
+    <!-- 1. Librerías (Pixi, jQuery, etc.) -->
     <script src="lib/pixi.min.js"></script>
     <script src="lib/jquery.min.js"></script>
     <script src="lib/howler.min.js"></script>
-    
-    <!-- 2. Carga las librerías específicas de EGT (¡LAS QUE FALTABAN!) -->
     <script src="lib/gamy.min.js"></script>
     <script src="lib/egt-library.min.js"></script>
-    
-    <!-- 3. Carga otros plugins y utilidades -->
     <script src="lib/bottle.min.js"></script>
     <script src="lib/CustomEase.min.js"></script>
     <script src="lib/Physics2DPlugin.min.js"></script>
@@ -38,14 +30,14 @@
     <script src="lib/SHA1.min.js"></script>
     <script src="lib/webfontloader.js"></script>
 
-    <!-- 4. Carga los scripts del juego -->
-    <script src="scripts/Config.js"></script>
-    <script src="scripts/BonusAnimation.min.js"></script>
-    <script src="scripts/FreespinAnimation.min.js"></script>
-    <script src="scripts/Game.min.js"></script>
-    
-    <!-- 5. Carga el archivo de configuración final y el main -->
+    <!-- 2. Scripts del Juego (en la raíz) -->
     <script src="Config.js"></script>
+    <script src="content.json"></script> <!-- Asegúrate que se llame así -->
+    <script src="BonusAnimation.min.js"></script>
+    <script src="FreespinAnimation.min.js"></script>
+    <script src="Game.min.js"></script>
+    
+    <!-- 3. Inicia el juego -->
     <script src="main.js"></script>
 </body>
 </html>

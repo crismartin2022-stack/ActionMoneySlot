@@ -80,8 +80,7 @@
           return { error: 'tcpHost no puede estar vacío.' };
         }
 
-        var hostAuthority = hostInput.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
-        if (/[/?#]/.test(hostAuthority)) {
+        if (hasExtraUrlParts(hostInput)) {
           return { error: 'tcpHost debe contener solo host[:puerto], sin path ni query. Valor recibido: ' + hostInput };
         }
 
@@ -138,6 +137,26 @@
         } catch (error) {
           return { error: 'tcpHost no es válido: ' + hostInput };
         }
+      }
+
+      function hasExtraUrlParts(hostInput) {
+        var value = String(hostInput || '').replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+        var authority = value;
+
+        if (authority.charAt(0) === '[') {
+          var bracketEnd = authority.indexOf(']');
+          if (bracketEnd === -1) {
+            return false;
+          }
+          authority = authority.slice(bracketEnd + 1);
+          if (authority.charAt(0) === ':') {
+            authority = authority.slice(1).replace(/^\d+/, '');
+          }
+        } else {
+          authority = authority.replace(/^[^/?#]+/, '');
+        }
+
+        return /^[/?#]/.test(authority);
       }
 
       function isBootstrapSocketUrl(url, expectedProtocol, expectedHost, expectedPort) {

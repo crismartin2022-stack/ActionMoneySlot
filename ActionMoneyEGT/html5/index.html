@@ -152,6 +152,10 @@
         var value = String(hostInput || '').replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
         var match;
 
+        if (isBareIpv6Host(value)) {
+          return false;
+        }
+
         if (value.charAt(0) === '[') {
           match = value.match(/^\[[^\]]+\](?::\d+)?(.*)$/);
           if (!match) {
@@ -194,7 +198,9 @@
           return parsedUrl.protocol === expectedProtocol
             && normalizeHostname(parsedUrl.hostname) === normalizeHostname(expectedHost)
             && effectivePort === expectedPort
-            && parsedUrl.pathname === expectedPath;
+            && parsedUrl.pathname === expectedPath
+            && !parsedUrl.search
+            && !parsedUrl.hash;
         } catch (error) {
           return false;
         }

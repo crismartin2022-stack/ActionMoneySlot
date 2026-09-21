@@ -91,6 +91,14 @@
             return { error: 'tcpHost no contiene un host válido.' };
           }
 
+          if ((parsedHost.pathname && parsedHost.pathname !== '/') || parsedHost.search || parsedHost.hash) {
+            return { error: 'tcpHost debe contener solo host[:puerto], sin path ni query. Valor recibido: ' + hostInput };
+          }
+
+          if (normalizedHost.indexOf(':') !== -1 && normalizedHost.charAt(0) !== '[') {
+            normalizedHost = '[' + normalizedHost + ']';
+          }
+
           if (!/^\d+$/.test(normalizedPort)) {
             return { error: 'tcpPort debe ser numérico. Valor recibido: ' + normalizedPort };
           }

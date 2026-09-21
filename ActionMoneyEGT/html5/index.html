@@ -150,10 +150,7 @@
           var effectivePort = parsedUrl.port || (parsedUrl.protocol === 'wss:' ? '443' : '80');
           return parsedUrl.protocol === expectedProtocol
             && normalizeHostname(parsedUrl.hostname) === normalizeHostname(expectedHost)
-            && effectivePort === expectedPort
-            && (!parsedUrl.pathname || parsedUrl.pathname === '/')
-            && !parsedUrl.search
-            && !parsedUrl.hash;
+            && effectivePort === expectedPort;
         } catch (error) {
           return false;
         }

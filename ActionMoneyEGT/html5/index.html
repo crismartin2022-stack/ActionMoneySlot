@@ -300,11 +300,6 @@
         if (event && event.target && event.target.tagName === 'SCRIPT') {
           var scriptSource = event.target.getAttribute('src') || event.filename || 'desconocido';
           showRuntimeError('Falló la carga del script: ' + scriptSource);
-          return;
-        }
-        if (event && event.message) {
-          var filename = event.filename ? ' (' + String(event.filename).split('/').pop() + ')' : '';
-          showRuntimeError('Error de runtime' + filename + ': ' + event.message);
         }
       });
 

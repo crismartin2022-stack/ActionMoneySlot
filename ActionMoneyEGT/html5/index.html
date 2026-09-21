@@ -68,6 +68,7 @@
 
       function normalizeSocketConfig(rawHost, rawPort, sslHost) {
         var protocol = sslHost ? 'wss://' : 'ws://';
+        var defaultPort = sslHost ? '443' : '80';
         var hostInput = String(rawHost || '').trim();
         var portInput = String(rawPort || '').trim();
         var hostWithScheme = hostInput;
@@ -85,7 +86,7 @@
           var parsedHost = new URL(hostWithScheme);
           var normalizedHost = parsedHost.hostname;
           var detectedPort = parsedHost.port;
-          var normalizedPort = detectedPort || portInput || (sslHost ? '443' : '80');
+          var normalizedPort = detectedPort || portInput || defaultPort;
 
           if (!normalizedHost) {
             return { error: 'tcpHost no contiene un host válido.' };
@@ -108,6 +109,8 @@
             return { error: 'tcpPort debe estar entre 1 y 65535. Valor recibido: ' + normalizedPort };
           }
 
+          var includePortInEndpoint = Boolean(detectedPort) || String(portNumber) !== defaultPort;
+
           if (detectedPort) {
             warnings.push(portInput && portInput !== detectedPort
               ? 'tcpHost ya incluye el puerto ' + detectedPort + '; se ignora tcpPort=' + portInput + '.'
@@ -117,7 +120,7 @@
           return {
             host: normalizedHost,
             port: String(portNumber),
-            wsEndpoint: protocol + normalizedHost + ':' + portNumber,
+            wsEndpoint: protocol + normalizedHost + (includePortInEndpoint ? ':' + portNumber : ''),
             warnings: warnings
           };
         } catch (error) {
@@ -168,7 +171,7 @@
       if (typeof window.WebSocket === 'function') {
         var NativeWebSocket = window.WebSocket;
         window.WebSocket = function (url, protocols) {
-          var socket = protocols === undefined ? new NativeWebSocket(url) : new NativeWebSocket(url, protocols);
+          var socket = protocols === undefined ? new NativeWebSocket(wsEndpoint) : new NativeWebSocket(wsEndpoint, protocols);
           socket.addEventListener('open', function () {
             hasOpenedSocket = true;
           });

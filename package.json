@@ -1,0 +1,8 @@
+{
+  "name": "action-money-slot",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node scripts/start-server.js"
+  }
+}

@@ -39,6 +39,8 @@ function bootActionMoneySlot() {
       loadingElement.style.display = "none";
     }
   } catch (error) {
+    window.gameApp.ready = false;
+    window.gameApp.instance = null;
     console.error("Error iniciando ActionMoneySlot:", error);
     showBootError(error?.message || "No se pudo inicializar el juego.");
   }

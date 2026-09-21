@@ -10,9 +10,6 @@
     "check": "node --check main.js && node --check Config.js"
   },
   "dependencies": {
-    "gsap": "^3.12.5",
-    "http-server": "^14.1.1",
-    "jquery": "^3.7.1",
-    "pixi.js": "^5.3.12"
+    "http-server": "^14.1.1"
   }
 }

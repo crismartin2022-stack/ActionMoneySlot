@@ -20,18 +20,27 @@
         </div>
     </div>
 
-    <!-- 1. Librerías base (Pixi, GSAP, jQuery) -->
-    <!-- Asumo que están en la carpeta 'lib' como ves en tu imagen -->
-    <script src="lib/egm.min.js"></script> <!-- O gamy.min.js, verifica el nombre -->
-    <script src="lib/gamy.min.js"></script> <!-- Asegúrate que gamy sea gamy o egm -->
+    <!-- 1. Carga las librerías base (Pixi, jQuery, etc.) -->
+    <script src="lib/pixi.min.js"></script>
+    <script src="lib/jquery.min.js"></script>
+    <script src="lib/howler.min.js"></script>
     
-    <!-- 2. Archivos de lógica del juego (scripts) -->
+    <!-- 2. Carga las librerías específicas de EGT (¡LAS QUE FALTABAN!) -->
+    <script src="lib/gamy.min.js"></script>
+    <script src="lib/egt-library.min.js"></script>
+    
+    <!-- 3. Carga otros plugins y utilidades -->
+    <script src="lib/bottle.min.js"></script>
+    <script src="lib/CustomEase.min.js"></script>
+    <script src="lib/Physics2DPlugin.min.js"></script>
+
+    <!-- 4. Carga los scripts del juego -->
     <script src="scripts/Config.js"></script>
     <script src="scripts/BonusAnimation.min.js"></script>
     <script src="scripts/FreespinAnimation.min.js"></script>
-    <script src="scripts/Game.min.js"></script> <!-- Asumiendo que es Game.min.js -->
+    <script src="scripts/Game.min.js"></script>
     
-    <!-- 3. Archivos de assets y configuración final -->
+    <!-- 5. Carga el archivo de configuración final y el main -->
     <script src="Config.js"></script>
     <script src="main.js"></script>
 </body>

@@ -138,7 +138,7 @@
         }
       }
 
-      function isBootstrapSocketUrl(url, expectedProtocol, expectedHost, expectedPort, fallbackUrl, normalizedUrl) {
+      function isBootstrapSocketUrl(url, expectedProtocol, expectedHost, expectedPort) {
         var urlString = String(url);
         try {
           var parsedUrl = new URL(urlString);
@@ -161,12 +161,6 @@
         return String(hostname || '').replace(/^\[/, '').replace(/\]$/, '');
       }
 
-      function buildSocketUrl(sslHost, host, port) {
-        var protocol = sslHost ? 'wss://' : 'ws://';
-        var defaultPort = sslHost ? '443' : '80';
-        return protocol + host + (String(port) !== defaultPort ? ':' + port : '');
-      }
-
       if (typeof gptsInit === 'undefined' || typeof initDesktopHtml !== 'function') {
         showRuntimeError('No se pudo inicializar el runtime: faltan scripts base del bootstrap.');
         return;
@@ -186,8 +180,6 @@
       var tcpHost = socketConfig.host;
       var tcpPort = socketConfig.port;
       var wsEndpoint = socketConfig.wsEndpoint;
-      var bootstrapSocketUrl = buildSocketUrl(sslHost, tcpHost, tcpPort);
-      var requestedBootstrapSocketUrl = buildSocketUrl(requestedSslHost, tcpHost, tcpPort);
       var hasOpenedSocket = false;
 
       window.gameName = gameName;
@@ -214,8 +206,8 @@
       if (typeof window.WebSocket === 'function') {
         var NativeWebSocket = window.WebSocket;
         window.WebSocket = function (url, protocols) {
-          var resolvedUrl = (isBootstrapSocketUrl(url, requestedSslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, requestedBootstrapSocketUrl, wsEndpoint)
-            || isBootstrapSocketUrl(url, sslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, bootstrapSocketUrl, wsEndpoint))
+          var resolvedUrl = (isBootstrapSocketUrl(url, requestedSslHost ? 'wss:' : 'ws:', tcpHost, tcpPort)
+            || isBootstrapSocketUrl(url, sslHost ? 'wss:' : 'ws:', tcpHost, tcpPort))
             ? wsEndpoint
             : url;
           var socket = protocols === undefined ? new NativeWebSocket(resolvedUrl) : new NativeWebSocket(resolvedUrl, protocols);

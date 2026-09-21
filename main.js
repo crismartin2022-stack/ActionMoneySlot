@@ -1,239 +1,72 @@
-// main.js - Versión Original Completa
-(function (window) {
-    'use strict';
+console.log("ActionMoneySlot - inicializando runtime EGT...");
 
-    // Espacio de nombres global para EGT
-    var com = window.com || {};
-    com.egt = com.egt || {};
-    com.egt.core = com.egt.core || {};
-    com.egt.core.main = com.egt.core.main || {};
+window.gameApp = window.gameApp || {};
 
-    // Configuración global del juego
-    var gameConfig = {
-        autoResize: true,
-        scaleMode: "fit",
-        orientation: "landscape",
-        width: 1280,
-        height: 720
-    };
-
-    // Función principal que inicia todo
-    function startGame() {
-        console.log("EGT ActionMoneySlot - Iniciando juego...");
-
-        // Crear la aplicación PIXI
-        var app = new PIXI.Application({
-            width: gameConfig.width,
-            height: gameConfig.height,
-            backgroundColor: 0x000000,
-            antialias: true
-        });
-
-        // Añadir el canvas de PIXI al DOM
-        document.getElementById('game-container').appendChild(app.view);
-
-        // Ajustar el tamaño del canvas si es necesario
-        if (gameConfig.autoResize) {
-            window.addEventListener('resize', function () {
-                resizeCanvas(app.view);
-            });
-            resizeCanvas(app.view);
-        }
-
-        // Cargar los recursos del juego
-        loadGameAssets(app);
+function initGame() {
+    const loadingElement = document.getElementById("loading");
+    if (loadingElement) {
+        loadingElement.style.display = "none";
     }
 
-    // Función para redimensionar el canvas
-    function resizeCanvas(canvas) {
-        var resizeMode = gameConfig.scaleMode;
-        var gameW = gameConfig.width;
-        var gameH = gameConfig.height;
+    const gameContainer = document.getElementById("game-container");
+    if (!gameContainer) {
+        console.error("No existe #game-container");
+        return;
+    }
 
-        var windowW = window.innerWidth;
-        var windowH = window.innerHeight;
+    if (typeof Config === "undefined") {
+        console.error("Config no está cargado.");
+        gameContainer.innerHTML = `
+            <div style="padding:2rem;font-family:sans-serif;color:#c00;">
+                <h2>Error: Config.js no cargó</h2>
+                <p>Falta cargar la config del juego.</p>
+            </div>
+        `;
+        return;
+    }
 
-        var scaleW = windowW / gameW;
-        var scaleH = windowH / gameH;
+    if (typeof Game === "undefined") {
+        console.error("Game no está cargado.");
+        gameContainer.innerHTML = `
+            <div style="padding:2rem;font-family:sans-serif;color:#c00;">
+                <h2>Error: Game.min.js no cargó</h2>
+                <p>Falta el runtime del juego.</p>
+            </div>
+        `;
+        return;
+    }
 
-        var scale;
-        var offsetX = 0;
-        var offsetY = 0;
+    try {
+        const config = new Config();
+        window.gameApp.config = config;
 
-        if (resizeMode === 'fit') {
-            scale = Math.min(scaleW, scaleH);
-            offsetX = (windowW - gameW * scale) / 2;
-            offsetY = (windowH - gameH * scale) / 2;
-        } else if (resizeMode === 'fill') {
-            scale = Math.max(scaleW, scaleH);
+        const game = new Game(config);
+        window.gameApp.game = game;
+
+        if (game && game.view) {
+            gameContainer.innerHTML = "";
+            gameContainer.appendChild(game.view);
+            console.log("Juego iniciado correctamente.");
         } else {
-            scale = 1;
+            console.warn("Game creado, pero no tiene vista visible.");
+            gameContainer.innerHTML = `
+                <div style="padding:2rem;font-family:sans-serif;color:#0a0;">
+                    <h2>ActionMoneySlot</h2>
+                    <p>Runtime cargado correctamente.</p>
+                </div>
+            `;
         }
-
-        canvas.style.width = gameW * scale + 'px';
-        canvas.style.height = gameH * scale + 'px';
-        canvas.style.marginLeft = offsetX + 'px';
-        canvas.style.marginTop = offsetY + 'px';
-    }
-
-    // Asignar la función de inicio al objeto global
-    com.egt.core.main.startGame = startGame;
-
-    // Iniciar el juego cuando el DOM esté listo
-    document.addEventListener('DOMContentLoaded', function () {
-        startGame();
-    });
-
-}(window));
-
-// Gestor de sonido básico para evitar que el juego se detenga
-// si no está disponible el motor de sonido original de EGT.
-function SoundManager() {
-    this.sounds = {};
-}
-
-SoundManager.prototype.init = function (config, resources) {
-    this.config = config;
-    this.resources = resources || {};
-};
-
-SoundManager.prototype.play = function () {
-    return null;
-};
-
-SoundManager.prototype.stop = function () {};
-SoundManager.prototype.destroy = function () {};
-
-// Función para cargar todos los recursos del juego
-function loadGameAssets(app) {
-    console.log("Cargando recursos del juego...");
-
-    // Crear el cargador de recursos
-    var loader = new PIXI.Loader();
-
-    // Añadir los recursos a cargar
-    loader
-        .add('reelImages', 'assets/images/reelImages.json')
-        .add('gambleResources', 'assets/images/gambleResources.json')
-        .add('jackpotResources', 'assets/images/jackpotResources.json')
-
-    // Añadir los videos de los símbolos
-    var reelVideos = new Config().reelVideos;
-    for (var i = 0; i < reelVideos.length; i++) {
-        if (reelVideos[i] && reelVideos[i].src) {
-            for (var j = 0; j < reelVideos[i].src.length; j++) {
-                loader.add('video_' + i + '_' + j, reelVideos[i].src[j]);
-            }
-        }
-    }
-
-    // Añadir los sonidos
-    var gameSounds = new Config().gameSounds;
-    for (var i = 0; i < gameSounds.length; i++) {
-        loader.add(gameSounds[i].src, gameSounds[i].src);
-    }
-
-    var freespinSounds = new Config().freespinSounds;
-    for (var i = 0; i < freespinSounds.length; i++) {
-        loader.add(freespinSounds[i].id, freespinSounds[i].src);
-    }
-
-    // Evento cuando los recursos se cargan correctamente
-    loader.load(function (loader, resources) {
-        console.log("Todos los recursos cargados. Iniciando interfaz del juego.");
-        initGameInterface(app, resources);
-    });
-
-    // Evento si hay un error al cargar
-    loader.onError.add(function (error) {
-        console.error("Error al cargar recursos:", error);
-        showError("Error al cargar los recursos del juego. Por favor, recarga la página.");
-    });
-}
-// Función para inicializar la interfaz del juego
-function initGameInterface(app, resources) {
-    // Ocultar el loader
-    var loadingElement = document.getElementById('loading');
-    if (loadingElement) {
-        loadingElement.style.display = 'none';
-    }
-
-    // Crear la configuración global
-    var config = new Config();
-
-    // Inicializar el gestor de sonido
-    var soundManager = new SoundManager();
-    soundManager.init(config, resources);
-
-    // Crear la vista principal del juego
-    var mainView = new MainView();
-    mainView.init(app, config, soundManager);
-    app.stage.addChild(mainView);
-
-    // Añadir la vista del juego al espacio de nombres global
-    window.gameApp.mainView = mainView;
-}
-
-// Función para mostrar errores
-function showError(message) {
-    var loadingElement = document.getElementById('loading');
-    if (loadingElement) {
-        loadingElement.innerHTML = '<h2 style="color: red;">Error</h2><p>' + message + '</p>';
+    } catch (error) {
+        console.error("Error al iniciar el juego:", error);
+        gameContainer.innerHTML = `
+            <div style="padding:2rem;font-family:sans-serif;color:#c00;">
+                <h2>Error al iniciar el juego</h2>
+                <pre>${String(error)}</pre>
+            </div>
+        `;
     }
 }
 
-// Clase MainView (vista principal del juego)
-function MainView() {
-    this.container = new PIXI.Container();
-    this.reelsContainer = new PIXI.Container();
-
-    this.init = function (app, config, soundManager) {
-        this.app = app;
-        this.config = config;
-        this.soundManager = soundManager;
-
-        // Añadir el contenedor de los carretes
-        this.container.addChild(this.reelsContainer);
-
-        // Inicializar los carretes
-        this.reels = [];
-        var reelX = 184;
-        for (var i = 0; i < config.numReels; i++) {
-            var reel = new Reel(i, reelX + i * (config.reelWidth + config.reelSpacing), 150, config);
-            this.reels.push(reel);
-            this.reelsContainer.addChild(reel.container);
-        }
-
-        // Añadir eventos de botones
-        this.addButtons();
-    };
-
-    this.addButtons = function () {
-        // Botón de start/spin
-        var spinButton = new PIXI.Text('SPIN', {fill: 0xFFFFFF, fontSize: 24});
-        spinButton.interactive = true;
-        spinButton.buttonMode = true;
-        spinButton.position.set(550, 620);
-        spinButton.on('pointerdown', this.startSpin.bind(this));
-        this.container.addChild(spinButton);
-    };
-
-    this.startSpin = function () {
-        console.log('Iniciando spin...');
-        for (var i = 0; i < this.reels.length; i++) {
-            this.reels[i].startSpin();
-        }
-    };
-}
-
-// Clase Reel (carrete individual)
-function Reel(index, x, y, config) {
-    this.container = new PIXI.Container();
-    this.container.position.set(x, y);
-    this.config = config;
-    this.index = index;
-
-    this.startSpin = function () {
-        console.log('Carrete ' + this.index + ' girando.');
-    };
-}
+window.addEventListener("load", function () {
+    setTimeout(initGame, 250);
+});

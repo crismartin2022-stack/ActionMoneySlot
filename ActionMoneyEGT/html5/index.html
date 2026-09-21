@@ -141,22 +141,21 @@
 
       function hasExtraUrlParts(hostInput) {
         var value = String(hostInput || '').replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
-        var authority = value;
+        var match;
 
-        if (authority.charAt(0) === '[') {
-          var bracketEnd = authority.indexOf(']');
-          if (bracketEnd === -1) {
+        if (value.charAt(0) === '[') {
+          match = value.match(/^\[[^\]]+\](?::\d+)?(.*)$/);
+          if (!match) {
             return false;
           }
-          authority = authority.slice(bracketEnd + 1);
-          if (authority.charAt(0) === ':') {
-            authority = authority.slice(1).replace(/^\d+/, '');
-          }
         } else {
-          authority = authority.replace(/^[^/?#]+/, '');
+          match = value.match(/^[^/?#:]+(?::\d+)?(.*)$/);
+          if (!match) {
+            return false;
+          }
         }
 
-        return /^[/?#]/.test(authority);
+        return /^[/?#]/.test(match[1] || '');
       }
 
       function isBootstrapSocketUrl(url, expectedProtocol, expectedHost, expectedPort) {
@@ -164,7 +163,8 @@
           return false;
         }
         try {
-          var websocketBase = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host;
+          var defaultPort = expectedProtocol === 'wss:' ? '443' : '80';
+          var websocketBase = expectedProtocol + '//' + expectedHost + (String(expectedPort) !== defaultPort ? ':' + expectedPort : '') + '/';
           var parsedUrl = new URL(url, websocketBase);
           if (parsedUrl.protocol !== 'ws:' && parsedUrl.protocol !== 'wss:') {
             return false;

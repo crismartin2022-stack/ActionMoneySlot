@@ -159,13 +159,16 @@
       }
 
       function isBootstrapSocketUrl(url, expectedProtocol, expectedHost, expectedPort) {
-        if (typeof url !== 'string' && !(url instanceof URL)) {
+        var isUrlObject = url instanceof URL;
+        if (typeof url !== 'string' && !isUrlObject) {
+          return false;
+        }
+
+        if (!isUrlObject && !/^wss?:\/\//i.test(url)) {
           return false;
         }
         try {
-          var defaultPort = expectedProtocol === 'wss:' ? '443' : '80';
-          var websocketBase = expectedProtocol + '//' + expectedHost + (String(expectedPort) !== defaultPort ? ':' + expectedPort : '') + '/';
-          var parsedUrl = new URL(url, websocketBase);
+          var parsedUrl = new URL(url);
           if (parsedUrl.protocol !== 'ws:' && parsedUrl.protocol !== 'wss:') {
             return false;
           }

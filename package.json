@@ -4,9 +4,9 @@
   "description": "EGT ActionMoneySlot Game",
   "main": "main.js",
   "scripts": {
-    "start": "npx http-server -p ${PORT:-8080} -c-1"
+    "start": "npx http-server . -p ${PORT:-8080} -c-1"
   },
   "dependencies": {
-    "http-server": "^1.16.0"
+    "http-server": "^14.1.1"
   }
 }

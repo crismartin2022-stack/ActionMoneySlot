@@ -134,7 +134,7 @@
   }
 
   function checkAsset(path) {
-    return fetch(path, { method: "HEAD", cache: "no-store" })
+    return fetch(path, { cache: "no-store" })
       .then(function (response) {
         return response.ok;
       })
@@ -178,8 +178,8 @@
       "    <h1>Bundle local listo, pero el runtime sigue incompleto</h1>",
       "    <p>El repositorio ya arranca con <code>npm start</code>, pero el juego EGT completo no puede inicializarse mientras falten librerías del engine o archivos base del bundle.</p>",
       '    <div class="hero-actions">',
-      '      <a class="button" href="assets/images/background.jpg" target="_blank" rel="noreferrer">Ver arte principal</a>',
-      '      <a class="button button-secondary" href="content.json" target="_blank" rel="noreferrer">Abrir content.json</a>',
+      '      <a class="button" href="assets/images/background.jpg" target="_blank" rel="noopener noreferrer">Ver arte principal</a>',
+      '      <a class="button button-secondary" href="content.json" target="_blank" rel="noopener noreferrer">Abrir content.json</a>',
       "    </div>",
       "  </div>",
       '  <div class="shell-art" aria-hidden="true"></div>',

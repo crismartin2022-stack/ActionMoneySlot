@@ -1,20 +1,14 @@
-# Usamos una imagen oficial de Node.js
 FROM node:18-alpine
 
-# Establecemos el directorio de trabajo
 WORKDIR /app
 
-# Copiamos el package.json primero para aprovechar el caché de Docker
+# Install the static HTTP server before copying the application files.
 COPY package.json ./
+RUN npm install --omit=dev
 
-# Instalamos las dependencias
-RUN npm install
-
-# Copiamos el resto de los archivos de nuestro proyecto
 COPY . .
 
-# Exponemos el puerto 8080
+# Railway provides PORT at runtime; 8080 is the local/default fallback.
 EXPOSE 8080
 
-# Ejecutamos el servidor
-CMD ["npm", "start"]
+CMD ["sh", "-c", "npx http-server /app -p ${PORT:-8080} -c-1"]

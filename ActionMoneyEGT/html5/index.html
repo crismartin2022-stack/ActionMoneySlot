@@ -153,6 +153,9 @@
             && !parsedUrl.search
             && !parsedUrl.hash;
         } catch (error) {
+          if (!/^wss?:\/\//i.test(urlString)) {
+            return false;
+          }
           var canonicalUrl = canonicalizeSocketUrl(urlString);
           return canonicalUrl === canonicalizeSocketUrl(fallbackUrl) || canonicalUrl === canonicalizeSocketUrl(normalizedUrl);
         }

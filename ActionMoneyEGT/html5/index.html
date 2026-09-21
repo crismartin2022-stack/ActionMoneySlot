@@ -143,7 +143,8 @@
       function isBootstrapSocketUrl(url, expectedProtocol, expectedHost, expectedPort) {
         var urlString = String(url);
         try {
-          var parsedUrl = new URL(urlString, window.location.href);
+          var websocketBase = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host;
+          var parsedUrl = new URL(urlString, websocketBase);
           if (parsedUrl.protocol !== 'ws:' && parsedUrl.protocol !== 'wss:') {
             return false;
           }

@@ -29,7 +29,7 @@ El servidor estático se inicia en `http://localhost:8080` (o `PORT` si está de
 - `/assets/`: recursos gráficos, audio y datos del juego.
 - `/css/`: estilos del shell/platform.
 - `/scripts/start-server.js`: servidor estático en Node + `http-server`.
-- `/Dockerfile`: arranque en contenedor usando el mismo script.
+- `/Dockerfile`: imagen que instala dependencias con `npm install --omit=dev` y arranca con `scripts/start-server.js`.
 
 ## Notas importantes
 

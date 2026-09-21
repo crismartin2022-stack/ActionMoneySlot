@@ -23,26 +23,36 @@
   <script>
     (function () {
       function showRuntimeError(message) {
-        var errorBox = document.getElementById('runtimeError');
-        if (!errorBox) {
-          errorBox = document.createElement('div');
-          errorBox.id = 'runtimeError';
-          errorBox.style.position = 'fixed';
-          errorBox.style.top = '12px';
-          errorBox.style.left = '12px';
-          errorBox.style.right = '12px';
-          errorBox.style.zIndex = '99999';
-          errorBox.style.padding = '12px 14px';
-          errorBox.style.background = 'rgba(140,0,0,0.95)';
-          errorBox.style.color = '#fff';
-          errorBox.style.fontFamily = 'Arial, sans-serif';
-          errorBox.style.fontSize = '14px';
-          errorBox.style.lineHeight = '1.4';
-          errorBox.style.border = '1px solid rgba(255,255,255,0.25)';
-          errorBox.style.borderRadius = '4px';
-          document.body.appendChild(errorBox);
-        }
+        var errorBox = ensureRuntimeMessageBox('runtimeError', 12, 'rgba(140,0,0,0.95)');
         errorBox.textContent = message;
+      }
+
+      function showRuntimeValidation(message, isWarning) {
+        var validationBox = ensureRuntimeMessageBox('runtimeValidation', 92, isWarning ? 'rgba(120,80,0,0.95)' : 'rgba(0,90,0,0.95)');
+        validationBox.textContent = message;
+      }
+
+      function ensureRuntimeMessageBox(id, top, background) {
+        var box = document.getElementById(id);
+        if (!box) {
+          box = document.createElement('div');
+          box.id = id;
+          box.style.position = 'fixed';
+          box.style.top = top + 'px';
+          box.style.left = '12px';
+          box.style.right = '12px';
+          box.style.zIndex = '99999';
+          box.style.padding = '12px 14px';
+          box.style.color = '#fff';
+          box.style.fontFamily = 'Arial, sans-serif';
+          box.style.fontSize = '14px';
+          box.style.lineHeight = '1.4';
+          box.style.border = '1px solid rgba(255,255,255,0.25)';
+          box.style.borderRadius = '4px';
+          document.body.appendChild(box);
+        }
+        box.style.background = background;
+        return box;
       }
 
       function getQueryParam(name, fallback) {
@@ -56,21 +66,85 @@
         return value === 'true' || value === '1';
       }
 
+      function normalizeSocketConfig(rawHost, rawPort, sslHost) {
+        var protocol = sslHost ? 'wss://' : 'ws://';
+        var hostInput = String(rawHost || '').trim();
+        var portInput = String(rawPort || '').trim();
+        var hostWithScheme = hostInput;
+        var warnings = [];
+
+        if (!hostInput) {
+          return { error: 'tcpHost no puede estar vacío.' };
+        }
+
+        if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(hostWithScheme)) {
+          hostWithScheme = protocol + hostWithScheme;
+        }
+
+        try {
+          var parsedHost = new URL(hostWithScheme);
+          var normalizedHost = parsedHost.hostname;
+          var detectedPort = parsedHost.port;
+          var normalizedPort = detectedPort || portInput || (sslHost ? '443' : '80');
+
+          if (!normalizedHost) {
+            return { error: 'tcpHost no contiene un host válido.' };
+          }
+
+          if (!/^\d+$/.test(normalizedPort)) {
+            return { error: 'tcpPort debe ser numérico. Valor recibido: ' + normalizedPort };
+          }
+
+          var portNumber = Number(normalizedPort);
+          if (portNumber < 1 || portNumber > 65535) {
+            return { error: 'tcpPort debe estar entre 1 y 65535. Valor recibido: ' + normalizedPort };
+          }
+
+          if (detectedPort) {
+            warnings.push(portInput && portInput !== detectedPort
+              ? 'tcpHost ya incluye el puerto ' + detectedPort + '; se ignora tcpPort=' + portInput + '.'
+              : 'tcpHost ya incluye el puerto ' + detectedPort + '; no se agrega un segundo puerto.');
+          }
+
+          return {
+            host: normalizedHost,
+            port: String(portNumber),
+            wsEndpoint: protocol + normalizedHost + ':' + portNumber,
+            warnings: warnings
+          };
+        } catch (error) {
+          return { error: 'tcpHost no es válido: ' + hostInput };
+        }
+      }
+
       if (typeof gptsInit === 'undefined' || typeof initDesktopHtml !== 'function') {
         showRuntimeError('No se pudo inicializar el runtime: faltan scripts base del bootstrap.');
         return;
       }
 
       var sslHost = getBooleanQueryParam('sslHost', window.location.protocol === 'https:');
-      var tcpHost = getQueryParam('tcpHost', window.location.hostname);
-      var tcpPort = getQueryParam('tcpPort', sslHost ? '443' : '80');
+      var rawTcpHost = getQueryParam('tcpHost', window.location.hostname);
+      var rawTcpPort = getQueryParam('tcpPort', sslHost ? '443' : '80');
+      var socketConfig = normalizeSocketConfig(rawTcpHost, rawTcpPort, sslHost);
       var gameName = getQueryParam('gameName', getQueryParam('game', 'ActionMoneySlot'));
-      var wsProtocol = sslHost ? 'wss://' : 'ws://';
-      var wsEndpoint = wsProtocol + tcpHost + ':' + tcpPort;
+      if (socketConfig.error) {
+        showRuntimeError(socketConfig.error);
+        return;
+      }
+      var tcpHost = socketConfig.host;
+      var tcpPort = socketConfig.port;
+      var wsEndpoint = socketConfig.wsEndpoint;
       var hasOpenedSocket = false;
 
       window.gameName = gameName;
       console.info('[ActionMoneySlot] WebSocket endpoint:', wsEndpoint);
+      showRuntimeValidation(
+        'WebSocket normalizado: ' + wsEndpoint + (socketConfig.warnings.length ? ' — ' + socketConfig.warnings.join(' ') : ''),
+        socketConfig.warnings.length > 0
+      );
+      if (socketConfig.warnings.length > 0) {
+        console.warn('[ActionMoneySlot] WebSocket normalization:', socketConfig.warnings.join(' '));
+      }
 
       window.addEventListener('error', function (event) {
         if (event && event.message) {

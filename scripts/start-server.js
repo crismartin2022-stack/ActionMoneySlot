@@ -245,6 +245,11 @@ const server = http.createServer((req, res) => {
   });
 });
 
+server.on('error', (error) => {
+  console.error('Failed to start ActionMoneySlot server:', error);
+  process.exit(1);
+});
+
 server.listen(PORT, HOST, () => {
   console.log(
     `ActionMoneySlot server listening on http://${HOST}:${PORT} -> ${DEFAULT_ENTRYPOINT}`

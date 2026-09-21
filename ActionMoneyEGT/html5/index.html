@@ -145,6 +145,7 @@
       var tcpHost = socketConfig.host;
       var tcpPort = socketConfig.port;
       var wsEndpoint = socketConfig.wsEndpoint;
+      var bootstrapSocketUrl = (sslHost ? 'wss://' : 'ws://') + tcpHost + ':' + tcpPort;
       var hasOpenedSocket = false;
 
       window.gameName = gameName;
@@ -171,7 +172,8 @@
       if (typeof window.WebSocket === 'function') {
         var NativeWebSocket = window.WebSocket;
         window.WebSocket = function (url, protocols) {
-          var socket = protocols === undefined ? new NativeWebSocket(wsEndpoint) : new NativeWebSocket(wsEndpoint, protocols);
+          var resolvedUrl = url === bootstrapSocketUrl ? wsEndpoint : url;
+          var socket = protocols === undefined ? new NativeWebSocket(resolvedUrl) : new NativeWebSocket(resolvedUrl, protocols);
           socket.addEventListener('open', function () {
             hasOpenedSocket = true;
           });

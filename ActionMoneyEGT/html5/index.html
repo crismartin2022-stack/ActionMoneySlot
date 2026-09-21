@@ -84,6 +84,9 @@
 
         try {
           var parsedHost = new URL(hostWithScheme);
+          if (/^[a-z][a-z0-9+.-]*:\/\//i.test(hostInput) && parsedHost.protocol !== 'ws:' && parsedHost.protocol !== 'wss:') {
+            return { error: 'tcpHost solo acepta host[:puerto] o URLs ws/wss. Valor recibido: ' + hostInput };
+          }
           var normalizedHost = parsedHost.hostname;
           var detectedPort = parsedHost.port;
           var normalizedPort = detectedPort || portInput || defaultPort;

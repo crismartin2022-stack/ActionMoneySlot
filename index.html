@@ -1,27 +1,33 @@
 <!DOCTYPE html>
 <html lang="es">
-  <head>
+<head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ActionMoneySlot - EGT</title>
-    <link rel="stylesheet" href="css/style.css" />
-  </head>
-  <body>
+    <link rel="stylesheet" href="css/style.css" /> <!-- Carga el CSS -->
+</head>
+<body>
     <div id="game-container" aria-live="polite">
-      <div id="loading" class="panel">
-        <p class="eyebrow">ActionMoneySlot</p>
-        <h1>Preparando el bootstrap del juego</h1>
-        <p id="boot-message">
-          Verificando dependencias, assets y runtime del bundle HTML5.
-        </p>
-        <div class="progress-bar" aria-hidden="true">
-          <div class="progress-fill"></div>
+        <div id="loading" class="panel">
+            <p class="eyebrow">ActionMoneySlot</p>
+            <h1>Preparando el bootstrap del juego</h1>
+            <p id="boot-message">
+                Verificando dependencias, assets y runtime del bundle HTML5.
+            </p>
+            <div class="progress-bar" aria-hidden="true">
+                <div class="progress-fill"></div>
+            </div>
         </div>
-      </div>
     </div>
 
-    <script src="Config.js" defer></script>
-    <script src="options.js" defer></script>
-    <script src="main.js" defer></script>
-  </body>
+    <!-- Carga las librerías locales -->
+    <script src="libs/pixi.min.js"></script>
+    <script src="libs/gsap.min.js"></script>
+    <script src="libs/jquery.min.js"></script>
+
+    <!-- Carga los archivos del juego -->
+    <script src="Config.js"></script>
+    <script src="options.js"></script> <!-- Si tienes este archivo -->
+    <script src="main.js"></script>
+</body>
 </html>

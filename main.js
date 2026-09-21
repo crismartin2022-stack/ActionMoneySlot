@@ -3,7 +3,13 @@ window.gameApp = window.gameApp || {};
 function showBootError(message) {
   const loadingElement = document.getElementById("loading");
   if (loadingElement) {
-    loadingElement.innerHTML = `<h2>Error de arranque</h2><p>${message}</p>`;
+    loadingElement.replaceChildren();
+    const title = document.createElement("h2");
+    title.textContent = "Error de arranque";
+    const details = document.createElement("p");
+    details.textContent = message;
+    loadingElement.appendChild(title);
+    loadingElement.appendChild(details);
   }
 }
 

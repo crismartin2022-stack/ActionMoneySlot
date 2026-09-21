@@ -23,26 +23,41 @@
   <script>
     (function () {
       function showRuntimeError(message) {
-        var errorBox = document.getElementById('runtimeError');
-        if (!errorBox) {
-          errorBox = document.createElement('div');
-          errorBox.id = 'runtimeError';
-          errorBox.style.position = 'fixed';
-          errorBox.style.top = '12px';
-          errorBox.style.left = '12px';
-          errorBox.style.right = '12px';
-          errorBox.style.zIndex = '99999';
-          errorBox.style.padding = '12px 14px';
-          errorBox.style.background = 'rgba(140,0,0,0.95)';
-          errorBox.style.color = '#fff';
-          errorBox.style.fontFamily = 'Arial, sans-serif';
-          errorBox.style.fontSize = '14px';
-          errorBox.style.lineHeight = '1.4';
-          errorBox.style.border = '1px solid rgba(255,255,255,0.25)';
-          errorBox.style.borderRadius = '4px';
-          document.body.appendChild(errorBox);
-        }
+        var errorBox = ensureRuntimeMessageBox('runtimeError', 12, 'rgba(140,0,0,0.95)');
+        errorBox.textContent = '';
         errorBox.textContent = message;
+      }
+
+      function showRuntimeValidation(message, isWarning) {
+        var validationBox = ensureRuntimeMessageBox('runtimeValidation', 92, isWarning ? 'rgba(120,80,0,0.95)' : 'rgba(0,90,0,0.95)');
+        validationBox.textContent = '';
+        validationBox.textContent = message;
+      }
+
+      function ensureRuntimeMessageBox(id, top, background) {
+        var box = document.getElementById(id);
+        if (!box) {
+          box = document.createElement('div');
+          box.id = id;
+          box.setAttribute('role', id === 'runtimeError' ? 'alert' : 'status');
+          box.setAttribute('aria-live', id === 'runtimeError' ? 'assertive' : 'polite');
+          box.setAttribute('aria-atomic', 'true');
+          box.style.position = 'fixed';
+          box.style.top = top + 'px';
+          box.style.left = '12px';
+          box.style.right = '12px';
+          box.style.zIndex = '99999';
+          box.style.padding = '12px 14px';
+          box.style.color = '#fff';
+          box.style.fontFamily = 'Arial, sans-serif';
+          box.style.fontSize = '14px';
+          box.style.lineHeight = '1.4';
+          box.style.border = '1px solid rgba(255,255,255,0.25)';
+          box.style.borderRadius = '4px';
+          document.body.appendChild(box);
+        }
+        box.style.background = background;
+        return box;
       }
 
       function getQueryParam(name, fallback) {
@@ -56,21 +71,177 @@
         return value === 'true' || value === '1';
       }
 
+      function normalizeSocketConfig(rawHost, rawPort, sslHost, hasExplicitPortParam) {
+        var requestedProtocol = sslHost ? 'wss://' : 'ws://';
+        var hostInput = String(rawHost || '').trim();
+        var portInput = String(rawPort || '').trim();
+        var hostWithScheme = hostInput;
+        var hasExplicitScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(hostInput);
+        var warnings = [];
+
+        if (!hostInput) {
+          return { error: 'tcpHost no puede estar vacío.' };
+        }
+
+        if (/^[a-z][a-z0-9+.-]*:/i.test(hostInput) && !/^[a-z][a-z0-9+.-]*:\/\//i.test(hostInput)) {
+          return { error: 'tcpHost solo acepta host[:puerto] o URLs ws/wss. Valor recibido: ' + hostInput };
+        }
+
+        if (!hasExplicitScheme && isBareIpv6Host(hostInput)) {
+          hostWithScheme = '[' + hostInput + ']';
+        }
+
+        if (hasExtraUrlParts(hostWithScheme)) {
+          return { error: 'tcpHost debe contener solo host[:puerto], sin path ni query. Valor recibido: ' + hostInput };
+        }
+
+        if (!hasExplicitScheme) {
+          hostWithScheme = requestedProtocol + hostWithScheme;
+        }
+
+        try {
+          var parsedHost = new URL(hostWithScheme);
+          if (hasExplicitScheme && parsedHost.protocol !== 'ws:' && parsedHost.protocol !== 'wss:') {
+            return { error: 'tcpHost solo acepta host[:puerto] o URLs ws/wss. Valor recibido: ' + hostInput };
+          }
+          var effectiveSslHost = hasExplicitScheme ? parsedHost.protocol === 'wss:' : sslHost;
+          var protocol = effectiveSslHost ? 'wss://' : 'ws://';
+          var defaultPort = effectiveSslHost ? '443' : '80';
+          var normalizedHost = parsedHost.hostname;
+          var detectedPort = parsedHost.port;
+          var normalizedPort = detectedPort || portInput || defaultPort;
+
+          if (!normalizedHost) {
+            return { error: 'tcpHost no contiene un host válido.' };
+          }
+
+          if (normalizedHost.indexOf(':') !== -1 && normalizedHost.charAt(0) !== '[') {
+            normalizedHost = '[' + normalizedHost + ']';
+          }
+
+          if (!/^\d+$/.test(normalizedPort)) {
+            return { error: 'tcpPort debe ser numérico. Valor recibido: ' + normalizedPort };
+          }
+
+          var portNumber = Number(normalizedPort);
+          if (portNumber < 1 || portNumber > 65535) {
+            return { error: 'tcpPort debe estar entre 1 y 65535. Valor recibido: ' + normalizedPort };
+          }
+
+          var includePortInEndpoint = String(portNumber) !== defaultPort;
+
+          if (detectedPort) {
+            if (hasExplicitPortParam && portInput && portInput !== detectedPort) {
+              warnings.push('tcpHost ya incluye el puerto ' + detectedPort + '; se ignora tcpPort=' + portInput + '.');
+            }
+          }
+
+          return {
+            host: normalizedHost,
+            port: String(portNumber),
+            sslHost: effectiveSslHost,
+            wsEndpoint: protocol + normalizedHost + (includePortInEndpoint ? ':' + portNumber : ''),
+            warnings: warnings
+          };
+        } catch (error) {
+          return { error: 'tcpHost no es válido: ' + hostInput };
+        }
+      }
+
+      function hasExtraUrlParts(hostInput) {
+        var value = String(hostInput || '').replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+        var match;
+
+        if (isBareIpv6Host(value)) {
+          return false;
+        }
+
+        if (value.charAt(0) === '[') {
+          match = value.match(/^\[[^\]]+\](?::\d+)?(.*)$/);
+          if (!match) {
+            return true;
+          }
+        } else {
+          match = value.match(/^[^/?#:]+(?::\d+)?(.*)$/);
+          if (!match) {
+            return true;
+          }
+        }
+
+        return /^[/?#]/.test(match[1] || '');
+      }
+
+      function isBareIpv6Host(hostInput) {
+        return typeof hostInput === 'string'
+          && hostInput.indexOf('[') === -1
+          && hostInput.indexOf(']') === -1
+          && (hostInput.match(/:/g) || []).length >= 2
+          && !/[/?#]/.test(hostInput);
+      }
+
+      function isBootstrapSocketUrl(url, expectedProtocol, expectedHost, expectedPort, expectedPath) {
+        var isUrlObject = Object.prototype.toString.call(url) === '[object URL]';
+        if (typeof url !== 'string' && !isUrlObject) {
+          return false;
+        }
+
+        var candidateUrl = isUrlObject ? url.href : url;
+        if (!/^wss?:\/\//i.test(candidateUrl)) {
+          return false;
+        }
+        try {
+          var parsedUrl = new URL(candidateUrl);
+          if (parsedUrl.protocol !== 'ws:' && parsedUrl.protocol !== 'wss:') {
+            return false;
+          }
+          var effectivePort = parsedUrl.port || (parsedUrl.protocol === 'wss:' ? '443' : '80');
+          return parsedUrl.protocol === expectedProtocol
+            && normalizeHostname(parsedUrl.hostname) === normalizeHostname(expectedHost)
+            && effectivePort === expectedPort
+            && parsedUrl.pathname === expectedPath
+            && !parsedUrl.search
+            && !parsedUrl.hash;
+        } catch (error) {
+          return false;
+        }
+      }
+
+      function normalizeHostname(hostname) {
+        return String(hostname || '').replace(/^\[/, '').replace(/\]$/, '');
+      }
+
       if (typeof gptsInit === 'undefined' || typeof initDesktopHtml !== 'function') {
         showRuntimeError('No se pudo inicializar el runtime: faltan scripts base del bootstrap.');
         return;
       }
 
       var sslHost = getBooleanQueryParam('sslHost', window.location.protocol === 'https:');
-      var tcpHost = getQueryParam('tcpHost', window.location.hostname);
-      var tcpPort = getQueryParam('tcpPort', sslHost ? '443' : '80');
+      var requestedSslHost = sslHost;
+      var rawTcpHost = getQueryParam('tcpHost', window.location.hostname);
+      var tcpPortParam = gptsInit.getParameterBy('tcpPort');
+      var hasExplicitTcpPort = tcpPortParam !== null && tcpPortParam !== '';
+      var rawTcpPort = hasExplicitTcpPort ? tcpPortParam : (sslHost ? '443' : '80');
+      var socketConfig = normalizeSocketConfig(rawTcpHost, rawTcpPort, sslHost, hasExplicitTcpPort);
       var gameName = getQueryParam('gameName', getQueryParam('game', 'ActionMoneySlot'));
-      var wsProtocol = sslHost ? 'wss://' : 'ws://';
-      var wsEndpoint = wsProtocol + tcpHost + ':' + tcpPort;
+      if (socketConfig.error) {
+        showRuntimeError(socketConfig.error);
+        return;
+      }
+      sslHost = socketConfig.sslHost;
+      var tcpHost = socketConfig.host;
+      var tcpPort = socketConfig.port;
+      var wsEndpoint = socketConfig.wsEndpoint;
       var hasOpenedSocket = false;
 
       window.gameName = gameName;
       console.info('[ActionMoneySlot] WebSocket endpoint:', wsEndpoint);
+      showRuntimeValidation(
+        'WebSocket normalizado: ' + wsEndpoint + (socketConfig.warnings.length ? ' — ' + socketConfig.warnings.join(' ') : ''),
+        socketConfig.warnings.length > 0
+      );
+      if (socketConfig.warnings.length > 0) {
+        console.warn('[ActionMoneySlot] WebSocket normalization:', socketConfig.warnings.join(' '));
+      }
 
       window.addEventListener('error', function (event) {
         if (event && event.message) {
@@ -86,7 +257,11 @@
       if (typeof window.WebSocket === 'function') {
         var NativeWebSocket = window.WebSocket;
         window.WebSocket = function (url, protocols) {
-          var socket = protocols === undefined ? new NativeWebSocket(url) : new NativeWebSocket(url, protocols);
+          var resolvedUrl = (isBootstrapSocketUrl(url, requestedSslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, '/')
+            || isBootstrapSocketUrl(url, sslHost ? 'wss:' : 'ws:', tcpHost, tcpPort, '/'))
+            ? wsEndpoint
+            : url;
+          var socket = protocols === undefined ? new NativeWebSocket(resolvedUrl) : new NativeWebSocket(resolvedUrl, protocols);
           socket.addEventListener('open', function () {
             hasOpenedSocket = true;
           });

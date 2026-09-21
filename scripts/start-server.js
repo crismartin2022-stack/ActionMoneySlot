@@ -166,9 +166,15 @@ function resolveRequestPath(cleanPath) {
 
   const relativeRequestPath = cleanPath.replace(/^\/+/, '');
   const normalizedPath = path.normalize(path.join(ROOT, relativeRequestPath));
-  const relativePath = path.relative(ROOT, normalizedPath);
+  const normalizedRoot = path.normalize(ROOT);
+  const rootPrefix = normalizedRoot.endsWith(path.sep)
+    ? normalizedRoot
+    : normalizedRoot + path.sep;
+  const comparablePath = normalizedPath.toLowerCase();
+  const comparableRoot = normalizedRoot.toLowerCase();
+  const comparableRootPrefix = rootPrefix.toLowerCase();
 
-  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+  if (comparablePath !== comparableRoot && !comparablePath.startsWith(comparableRootPrefix)) {
     return {
       error: 403
     };

@@ -12,7 +12,7 @@ Abre `http://localhost:8080`.
 
 ## Variables de entorno soportadas
 
-El servidor expone `/runtime-config.js` y el cliente usa esos valores como defaults en tiempo de ejecución:
+El servidor expone `/runtime-config.js` y el cliente usa esos valores como valores predeterminados en tiempo de ejecución:
 
 - `HOST` - host HTTP del servidor (`0.0.0.0` por defecto)
 - `PORT` - puerto HTTP del servidor (`8080` por defecto)

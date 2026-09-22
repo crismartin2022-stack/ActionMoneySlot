@@ -4,6 +4,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const vm = require('vm');
 const WebSocket = require('ws');
 
 const rootDir = path.resolve(__dirname, '..');
@@ -109,6 +110,46 @@ async function closeServer(server) {
   });
 }
 
+function extractFunctionSource(content, functionName) {
+  const startMarker = `function ${functionName}(`;
+  const startIndex = content.indexOf(startMarker);
+  assert(startIndex >= 0, `Expected ${functionName} to exist in index.html.`);
+
+  const bodyStartIndex = content.indexOf('{', startIndex);
+  assert(bodyStartIndex >= 0, `Expected ${functionName} body to exist in index.html.`);
+
+  let depth = 0;
+  for (let index = bodyStartIndex; index < content.length; index += 1) {
+    const character = content[index];
+    if (character === '{') {
+      depth += 1;
+    } else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return content.slice(startIndex, index + 1);
+      }
+    }
+  }
+
+  throw new Error(`Could not extract ${functionName} from index.html.`);
+}
+
+function loadNormalizeSocketConfig(indexHtml) {
+  const functionNames = ['isBareIpv6Host', 'hasExtraUrlParts', 'normalizeSocketConfig'];
+  const sources = functionNames.map((functionName) => extractFunctionSource(indexHtml, functionName));
+  const script = `${sources.join('\n\n')}\nmodule.exports = normalizeSocketConfig;`;
+  const sandbox = {
+    URL,
+    assert,
+    module: { exports: null },
+    exports: {}
+  };
+  vm.runInNewContext(script, sandbox, {
+    filename: 'ActionMoneyEGT/html5/index.html::normalizeSocketConfig'
+  });
+  return sandbox.module.exports;
+}
+
 async function main() {
   const syntaxChecks = [serverScript, backendScript].map((scriptPath) => spawnSync(process.execPath, ['--check', scriptPath], {
     cwd: rootDir,
@@ -142,6 +183,24 @@ async function main() {
   assert(indexHtml.includes('Falta configurar tcpHost.'), 'index.html should still report invalid tcpHost values.');
   assert(indexHtml.includes('window.sessionStorage.setItem(\'sessionId\''), 'index.html should persist sessionId for backend sessions.');
   assert(indexHtml.includes('runtimeConfig.apiBase'), 'index.html should preserve apiBase from query or runtime config.');
+  const normalizeSocketConfig = loadNormalizeSocketConfig(indexHtml);
+  const railwaySocketConfig = normalizeSocketConfig('actionmoneyslot-production.up.railway.app', '443', true, true);
+  assert.strictEqual(railwaySocketConfig.error, undefined, railwaySocketConfig.error);
+  assert.strictEqual(railwaySocketConfig.host, 'actionmoneyslot-production.up.railway.app');
+  assert.strictEqual(railwaySocketConfig.port, '443');
+  assert.strictEqual(railwaySocketConfig.sslHost, true);
+  assert.strictEqual(railwaySocketConfig.wsEndpoint, 'wss://actionmoneyslot-production.up.railway.app');
+  assert.deepStrictEqual(Array.from(railwaySocketConfig.warnings), []);
+  assert(!String(railwaySocketConfig.error || '').includes('tcpHost no es válido'), 'Valid Railway host should not surface a misleading tcpHost error.');
+
+  const localSocketConfig = normalizeSocketConfig('127.0.0.1', '80', false, true);
+  assert.strictEqual(localSocketConfig.error, undefined, localSocketConfig.error);
+  assert.strictEqual(localSocketConfig.host, '127.0.0.1');
+  assert.strictEqual(localSocketConfig.port, '80');
+  assert.strictEqual(localSocketConfig.sslHost, false);
+  assert.strictEqual(localSocketConfig.wsEndpoint, 'ws://127.0.0.1');
+  assert.deepStrictEqual(Array.from(localSocketConfig.warnings), []);
+  assert(!String(localSocketConfig.error || '').includes('tcpHost no es válido'), 'Valid local host should not surface a misleading tcpHost error.');
 
   const gptsScript = fs.readFileSync(gptsPath, 'utf8');
   assert(gptsScript.includes("if('string'==typeof b.data&&0===b.data.indexOf(':::')){b.data=b.data.slice(3);}"), 'gpts websocket parser should strip a single transport prefix.');

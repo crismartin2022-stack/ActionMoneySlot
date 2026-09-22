@@ -195,6 +195,7 @@
             return { error: 'tcpPort debe estar entre 1 y 65535. Valor recibido: ' + normalizedPort };
           }
 
+          var defaultPort = effectiveSslHost ? '443' : '80';
           var includePortInEndpoint = String(portNumber) !== defaultPort;
 
           if (detectedPort) {

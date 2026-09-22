@@ -277,6 +277,24 @@ async function main() {
       assert(Array.isArray(betResponse.complex.reels));
       assert.strictEqual(betResponse.complex.reels.length, 30);
       assert(betResponse.balance >= 0);
+
+      const invalidBetResponse = await sendWsRequest(socket, {
+        messageId: 'r-r_invalid_bet',
+        command: 'bet',
+        qName: 'jServer.AMJSlot.bet.bet',
+        sessionKey: 'LOCAL:test',
+        gameIdentificationNumber: 1,
+        gameNumber: subscribeResponse.gameNumber,
+        sessionId,
+        bet: {
+          gameCommand: 'bet',
+          bet: 999,
+          denomination: 999,
+          lines: 999
+        }
+      });
+      assert.strictEqual(invalidBetResponse.msg, 'failure');
+      assert(invalidBetResponse.reason.includes('Unsupported'));
     } finally {
       await new Promise((resolve) => {
         socket.once('close', resolve);

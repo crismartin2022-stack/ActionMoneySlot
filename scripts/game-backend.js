@@ -290,6 +290,9 @@ class SessionStore {
       if (existing) {
         return existing;
       }
+      if (String(id) !== 'demo-session') {
+        return null;
+      }
       return this.createSession({ ...input, id });
     }
     return this.createSession(input);
@@ -731,7 +734,14 @@ function createBackend(options) {
         writeJsonFrame(ws, buildFailureResponse(request, `Unknown session: ${sessionId}`));
         return;
       }
-      const game = findGameById(games, request.gameIdentificationNumber) || games[0];
+      const requestedGameId = request.gameIdentificationNumber;
+      const game = requestedGameId === undefined || requestedGameId === null
+        ? games[0]
+        : findGameById(games, requestedGameId);
+      if (!game) {
+        writeJsonFrame(ws, buildFailureResponse(request, `Unknown gameIdentificationNumber: ${requestedGameId}`));
+        return;
+      }
       let response;
 
       switch (request.command) {

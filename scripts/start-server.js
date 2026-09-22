@@ -51,11 +51,6 @@ function buildRuntimeConfig() {
     process.env.CURRENCY,
     'EUR'
   ]);
-  const token = getFirstDefined([
-    process.env.ACTION_MONEY_SLOT_TOKEN,
-    process.env.TOKEN,
-    'local-test-token'
-  ]);
   const sslHostValue = getFirstDefined([
     process.env.ACTION_MONEY_SLOT_SSL_HOST,
     process.env.SSL_HOST,
@@ -69,8 +64,7 @@ function buildRuntimeConfig() {
     gameName,
     game: gameName,
     language,
-    currency,
-    token
+    currency
   };
 }
 

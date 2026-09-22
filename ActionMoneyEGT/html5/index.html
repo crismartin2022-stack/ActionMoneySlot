@@ -410,8 +410,7 @@
             gameName: gameName,
             game: gameName,
             language: getQueryParam('language', runtimeConfig.language || 'en'),
-            currency: getQueryParam('currency', runtimeConfig.currency || 'EUR'),
-            token: getQueryParam('token', runtimeConfig.token || 'local-test-token')
+            currency: getQueryParam('currency', runtimeConfig.currency || 'EUR')
           });
         } catch (error) {
           showRuntimeError('Falló la inicialización: ' + (error && error.message ? error.message : String(error)));

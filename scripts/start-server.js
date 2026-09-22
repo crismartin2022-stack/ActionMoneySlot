@@ -372,14 +372,28 @@ function createServer(options) {
 
   const originalClose = server.close.bind(server);
   let isClosing = false;
+  const closeCallbacks = [];
+
+  function flushCloseCallbacks() {
+    while (closeCallbacks.length) {
+      const callback = closeCallbacks.shift();
+      callback();
+    }
+  }
+
   server.close = (callback) => {
+    if (typeof callback === 'function') {
+      closeCallbacks.push(callback);
+    }
     if (isClosing) {
-      return originalClose(callback);
+      return server;
     }
     isClosing = true;
     server.off('upgrade', upgradeHandler);
     backend.shutdown(() => {
-      originalClose(callback);
+      originalClose(() => {
+        flushCloseCallbacks();
+      });
     });
     return server;
   };

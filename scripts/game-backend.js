@@ -333,7 +333,14 @@ function discoverGames(rootDir) {
   return games;
 }
 
-function resolveGameSelection(games, input = {}) {
+function hasGameSelectionInput(input = {}) {
+  return ['gameIdentificationNumber', 'gameType', 'gameName'].some((key) => {
+    const value = input[key];
+    return value !== undefined && value !== null && value !== '';
+  });
+}
+
+function resolveGameSelection(games, input = {}, options = {}) {
   if (input.gameIdentificationNumber !== undefined && input.gameIdentificationNumber !== null) {
     const byId = games.find((game) => game.gameIdentificationNumber === Number(input.gameIdentificationNumber));
     if (byId) {
@@ -355,6 +362,10 @@ function resolveGameSelection(games, input = {}) {
     if (byName) {
       return byName;
     }
+  }
+
+  if (options.allowDefault === false) {
+    return null;
   }
 
   return games[0] || null;
@@ -1164,7 +1175,13 @@ function createBackend(options) {
         if (req.method === 'POST') {
           try {
             const payload = await readJsonBody(req);
-            const selectedGame = resolveGameSelection(games, payload);
+            const selectedGame = hasGameSelectionInput(payload)
+              ? resolveGameSelection(games, payload, { allowDefault: false })
+              : resolveGameSelection(games, payload);
+            if (!selectedGame) {
+              sendApiJson(res, 400, { error: 'Game selection is invalid.' }, shouldSendBody);
+              return true;
+            }
             const session = sessionStore.createSession({ ...payload, gameIdentificationNumber: selectedGame && selectedGame.gameIdentificationNumber });
             sendApiJson(res, 201, {
               session: sanitizeSessionForApi(session, games),
@@ -1215,7 +1232,9 @@ function createBackend(options) {
         }
         try {
           const payload = await readJsonBody(req);
-          const selectedGame = resolveGameSelection(games, payload);
+          const selectedGame = hasGameSelectionInput(payload)
+            ? resolveGameSelection(games, payload, { allowDefault: false })
+            : resolveGameSelection(games, payload);
           if (!selectedGame) {
             sendApiJson(res, 400, { error: 'Game selection is invalid.' }, shouldSendBody);
             return true;

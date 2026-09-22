@@ -1342,6 +1342,16 @@ function createBackend(options) {
         socket.destroy();
         return;
       }
+      const upgradeHeader = String(req.headers.upgrade || '').toLowerCase();
+      const connectionHeader = String(req.headers.connection || '').toLowerCase();
+      if (
+        upgradeHeader !== 'websocket'
+        || !connectionHeader.split(',').map((value) => value.trim()).includes('upgrade')
+        || !req.headers['sec-websocket-key']
+      ) {
+        socket.destroy();
+        return;
+      }
       const origin = req.headers.origin;
       const forwardedHost = req.headers['x-forwarded-host'];
       const forwardedProto = req.headers['x-forwarded-proto'];

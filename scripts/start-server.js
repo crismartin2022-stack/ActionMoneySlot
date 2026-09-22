@@ -404,7 +404,13 @@ function createServer(options) {
     server.off('upgrade', upgradeHandler);
     backend.shutdown((backendError) => {
       originalClose((serverError) => {
-        flushCloseCallbacks(backendError || serverError || null);
+        const finalError = backendError || serverError || null;
+        if (finalError && !isClosed) {
+          isClosing = false;
+        } else {
+          isClosed = true;
+        }
+        flushCloseCallbacks(finalError);
       });
     });
     return server;

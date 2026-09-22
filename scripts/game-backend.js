@@ -315,27 +315,43 @@ function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let totalLength = 0;
+    let settled = false;
+
+    function finish(callback, value) {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      callback(value);
+    }
+
     req.on('data', (chunk) => {
+      if (settled) {
+        return;
+      }
       totalLength += chunk.length;
       if (totalLength > 1024 * 1024) {
-        reject(new Error('Request body too large.'));
+        finish(reject, new Error('Request body too large.'));
         req.destroy();
         return;
       }
       chunks.push(chunk);
     });
     req.on('end', () => {
+      if (settled) {
+        return;
+      }
       if (!chunks.length) {
-        resolve({});
+        finish(resolve, {});
         return;
       }
       try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        finish(resolve, JSON.parse(Buffer.concat(chunks).toString('utf8')));
       } catch (error) {
-        reject(new Error('Invalid JSON body.'));
+        finish(reject, new Error('Invalid JSON body.'));
       }
     });
-    req.on('error', reject);
+    req.on('error', (error) => finish(reject, error));
   });
 }
 
@@ -776,7 +792,13 @@ function createBackend(options) {
 
       const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)(?:\/balance)?$/);
       if (sessionMatch) {
-        const sessionId = decodeURIComponent(sessionMatch[1]);
+        let sessionId;
+        try {
+          sessionId = decodeURIComponent(sessionMatch[1]);
+        } catch (error) {
+          sendApiJson(res, 400, { error: 'Invalid session id.' }, shouldSendBody);
+          return true;
+        }
         const session = sessionStore.getSession(sessionId);
         if (!session) {
           sendApiJson(res, 404, { error: 'Session not found.' }, shouldSendBody);
@@ -816,6 +838,10 @@ function createBackend(options) {
       return false;
     },
     handleUpgrade(req, socket, head) {
+      if ((req.method || 'GET') !== 'GET') {
+        socket.destroy();
+        return;
+      }
       const pathname = parsePathname(req.url || '/');
       if (pathname !== '/' && pathname !== '/ws') {
         socket.destroy();

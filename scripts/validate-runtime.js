@@ -172,6 +172,9 @@ async function main() {
     assert(Array.isArray(gamesPayload.games));
     assert.strictEqual(gamesPayload.games[0].gameType, 'AMJSlot');
 
+    const invalidGamesMethod = await httpRequest(address.port, '/api/games', { method: 'POST' });
+    assert.strictEqual(invalidGamesMethod.statusCode, 405);
+
     const createdSessionResponse = await httpRequest(address.port, '/api/sessions', {
       method: 'POST',
       headers: {
@@ -199,6 +202,9 @@ async function main() {
     assert.strictEqual(balanceUpdateResponse.statusCode, 200);
     const updatedSession = JSON.parse(balanceUpdateResponse.body).session;
     assert.strictEqual(updatedSession.balance, 12400);
+
+    const invalidBalanceMethod = await httpRequest(address.port, `/api/sessions/${encodeURIComponent(createdSessionPayload.session.id)}/balance`);
+    assert.strictEqual(invalidBalanceMethod.statusCode, 405);
 
     const socket = await createWebSocketSession(address.port);
     try {

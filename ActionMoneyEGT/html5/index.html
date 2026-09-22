@@ -131,7 +131,13 @@
         );
 
         if (!sessionId) {
-          sessionId = 'session-' + String(Date.now()) + '-' + String(Math.floor(Math.random() * 1000000));
+          var randomSuffix = String(Date.now());
+          if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+            var randomValues = new Uint32Array(1);
+            window.crypto.getRandomValues(randomValues);
+            randomSuffix = String(randomValues[0]);
+          }
+          sessionId = 'session-' + String(Date.now()) + '-' + randomSuffix;
         }
 
         try {

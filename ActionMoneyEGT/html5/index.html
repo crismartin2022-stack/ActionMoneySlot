@@ -97,6 +97,7 @@
           box.style.fontFamily = 'Arial, sans-serif';
           box.style.fontSize = '14px';
           box.style.lineHeight = '1.4';
+          box.style.whiteSpace = 'pre-wrap';
           box.style.border = '1px solid rgba(255,255,255,0.25)';
           box.style.borderRadius = '4px';
           document.body.appendChild(box);
@@ -114,6 +115,44 @@
         var value = gptsInit.getParameterBy(name);
         if (value === null || value === '') return fallback;
         return value === 'true' || value === '1';
+      }
+
+      function describeReadyState(readyState) {
+        switch (readyState) {
+          case 0: return 'CONNECTING';
+          case 1: return 'OPEN';
+          case 2: return 'CLOSING';
+          case 3: return 'CLOSED';
+          default: return 'UNKNOWN';
+        }
+      }
+
+      function buildSocketDiagnosticMessage(message, details) {
+        var lines = [message];
+        var socketUrl = details && details.url ? details.url : null;
+
+        if (socketUrl) {
+          lines.push('URL: ' + socketUrl);
+        }
+
+        if (details && details.readyState !== undefined && details.readyState !== null) {
+          lines.push('readyState: ' + describeReadyState(details.readyState) + ' (' + details.readyState + ')');
+        }
+
+        if (details && details.code !== undefined && details.code !== null) {
+          lines.push('closeCode: ' + details.code);
+        }
+
+        if (details && details.reason) {
+          lines.push('closeReason: ' + details.reason);
+        }
+
+        if (details && typeof details.wasClean === 'boolean') {
+          lines.push('wasClean: ' + details.wasClean);
+        }
+
+        lines.push('online: ' + (navigator.onLine ? 'true' : 'false'));
+        return lines.join('\n');
       }
 
       function normalizeSocketConfig(rawHost, rawPort, sslHost, hasExplicitPortParam) {
@@ -353,7 +392,13 @@
               hasAttemptedSocket = true;
               socketWatchdogId = setTimeout(function () {
                 if (!hasOpenedSocket) {
-                  showRuntimeError('La conexión WebSocket sigue sin abrirse después de 15s: ' + wsEndpoint);
+                  showRuntimeError(buildSocketDiagnosticMessage(
+                    'La conexión WebSocket sigue sin abrirse después de 15s.',
+                    {
+                      url: resolvedUrl,
+                      readyState: socket.readyState
+                    }
+                  ));
                 }
               }, 15000);
             }
@@ -371,13 +416,35 @@
             socket.addEventListener('error', function () {
               if (!didReportConnectionFailure) {
                 didReportConnectionFailure = true;
-                showRuntimeError('Falló la conexión WebSocket con ' + wsEndpoint + '. Revisa tcpHost/tcpPort/sslHost.');
+                console.error('[ActionMoneySlot] WebSocket error event:', resolvedUrl, 'readyState=', socket.readyState);
+                showRuntimeError(buildSocketDiagnosticMessage(
+                  'Falló la conexión WebSocket. Revisa tcpHost/tcpPort/sslHost.',
+                  {
+                    url: resolvedUrl,
+                    readyState: socket.readyState
+                  }
+                ));
               }
             });
-            socket.addEventListener('close', function () {
+            socket.addEventListener('close', function (event) {
+              console.warn('[ActionMoneySlot] WebSocket close event:', resolvedUrl, {
+                code: event.code,
+                reason: event.reason,
+                wasClean: event.wasClean,
+                readyState: socket.readyState
+              });
               if (!hasOpenedSocket && !didReportConnectionFailure) {
                 didReportConnectionFailure = true;
-                showRuntimeError('No se pudo abrir WebSocket en ' + wsEndpoint + '.');
+                showRuntimeError(buildSocketDiagnosticMessage(
+                  'No se pudo abrir WebSocket.',
+                  {
+                    url: resolvedUrl,
+                    readyState: socket.readyState,
+                    code: event.code,
+                    reason: event.reason,
+                    wasClean: event.wasClean
+                  }
+                ));
               }
             });
             return socket;

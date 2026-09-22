@@ -544,6 +544,31 @@ function createWinningLine(reels, winAmount) {
   }];
 }
 
+function validateBetPayload(game, denomination, numberOfLines, betAmount) {
+  const supportedDenominations = game.settings.denominations.map((entry) => Number(entry[0]));
+  if (!supportedDenominations.includes(denomination)) {
+    return `Unsupported denomination: ${denomination}`;
+  }
+
+  const supportedLines = game.settings.lineGame
+    ? game.settings.linesCount.map((value) => Number(value))
+    : game.settings.lines.map((value) => Number(value));
+  if (!supportedLines.includes(numberOfLines)) {
+    return `Unsupported line count: ${numberOfLines}`;
+  }
+
+  if (betAmount < denomination || betAmount % denomination !== 0) {
+    return `Unsupported bet amount: ${betAmount}`;
+  }
+
+  const betUnits = betAmount / denomination;
+  if (!game.settings.bets.map((value) => Number(value)).includes(betUnits)) {
+    return `Unsupported bet amount: ${betAmount}`;
+  }
+
+  return null;
+}
+
 function handleSpin(request, session, game) {
   const sessionGame = session.games[game.gameIdentificationNumber];
   const betPayload = request.bet || {};
@@ -559,31 +584,6 @@ function handleSpin(request, session, game) {
 
   if (session.balance < totalBet) {
     return buildInsufficientFundsResponse(request, session, game);
-  }
-
-  function validateBetPayload(game, denomination, numberOfLines, betAmount) {
-    const supportedDenominations = game.settings.denominations.map((entry) => Number(entry[0]));
-    if (!supportedDenominations.includes(denomination)) {
-      return `Unsupported denomination: ${denomination}`;
-    }
-
-    const supportedLines = game.settings.lineGame
-      ? game.settings.linesCount.map((value) => Number(value))
-      : game.settings.lines.map((value) => Number(value));
-    if (!supportedLines.includes(numberOfLines)) {
-      return `Unsupported line count: ${numberOfLines}`;
-    }
-
-    if (betAmount < denomination || betAmount % denomination !== 0) {
-      return `Unsupported bet amount: ${betAmount}`;
-    }
-
-    const betUnits = betAmount / denomination;
-    if (!game.settings.bets.map((value) => Number(value)).includes(betUnits)) {
-      return `Unsupported bet amount: ${betAmount}`;
-    }
-
-    return null;
   }
 
   session.balance -= totalBet;
@@ -788,6 +788,7 @@ function createBackend(options) {
     async handleApiRequest(req, res, pathname, shouldSendBody) {
       if (pathname === '/api/games') {
         if (!['GET', 'HEAD'].includes(req.method || 'GET')) {
+          res.setHeader('Allow', 'GET, HEAD');
           sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
           return true;
         }
@@ -832,6 +833,7 @@ function createBackend(options) {
           return true;
         }
 
+        res.setHeader('Allow', 'GET, HEAD, POST');
         sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
         return true;
       }
@@ -852,6 +854,7 @@ function createBackend(options) {
         }
 
         if (req.method !== 'POST') {
+          res.setHeader('Allow', 'POST');
           sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
           return true;
         }
@@ -883,6 +886,7 @@ function createBackend(options) {
           return true;
         }
         if (!['GET', 'HEAD'].includes(req.method || 'GET')) {
+          res.setHeader('Allow', 'GET, HEAD');
           sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
           return true;
         }

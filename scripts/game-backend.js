@@ -1041,6 +1041,9 @@ function findGameById(games, gameIdentificationNumber) {
 function createBackend(options) {
   const rootDir = options.rootDir;
   const apiBase = options.apiBase || DEFAULT_API_BASE;
+  if (apiBase === '/' || apiBase === '/ws') {
+    throw new Error('ACTION_MONEY_SLOT_API_BASE cannot be "/" or "/ws" because those paths are reserved for WebSocket upgrades.');
+  }
   const apiBasePattern = escapeRegex(apiBase);
   const games = discoverGames(rootDir);
   const sessionStore = new SessionStore(games, {

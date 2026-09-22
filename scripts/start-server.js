@@ -374,10 +374,10 @@ function createServer(options) {
   let isClosing = false;
   const closeCallbacks = [];
 
-  function flushCloseCallbacks() {
+  function flushCloseCallbacks(error) {
     while (closeCallbacks.length) {
       const callback = closeCallbacks.shift();
-      callback();
+      callback(error);
     }
   }
 
@@ -391,8 +391,8 @@ function createServer(options) {
     isClosing = true;
     server.off('upgrade', upgradeHandler);
     backend.shutdown(() => {
-      originalClose(() => {
-        flushCloseCallbacks();
+      originalClose((error) => {
+        flushCloseCallbacks(error);
       });
     });
     return server;

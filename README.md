@@ -20,10 +20,12 @@ Este repositorio ahora incluye:
 
 ## Requisitos
 
-- Node.js 22 o superior
+- Node.js 22.5.0 o superior
 - npm
 
-> Este proyecto depende de `node:sqlite`, así que la versión mínima recomendada es Node 22.
+> Este proyecto depende de `node:sqlite` y `DatabaseSync`, disponibles a partir de Node.js 22.5.0.
+
+> `apiBase` no puede ser `/` ni `/ws`, porque esas rutas quedan reservadas para el bridge WebSocket del juego.
 
 ## Endpoints principales
 

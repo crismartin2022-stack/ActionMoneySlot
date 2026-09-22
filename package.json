@@ -2,6 +2,9 @@
   "name": "action-money-slot",
   "private": true,
   "version": "1.0.0",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "start": "node scripts/start-server.js",
     "check": "node --check scripts/start-server.js",

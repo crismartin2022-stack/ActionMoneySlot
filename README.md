@@ -1,41 +1,30 @@
 # ActionMoneySlot
 
-Este repositorio **sí contiene**:
+Este repositorio ahora incluye:
 
 - frontend del juego en `/home/runner/work/ActionMoneySlot/ActionMoneySlot/ActionMoneyEGT`
 - servidor HTTP Node.js en `/home/runner/work/ActionMoneySlot/ActionMoneySlot/scripts/start-server.js`
-- `package.json`
-- `railway.json`
+- backend API REST y backend WebSocket del juego en `/home/runner/work/ActionMoneySlot/ActionMoneySlot/scripts/game-backend.js`
 
-Este repositorio **no contiene** actualmente:
+## Qué hace ahora el repositorio
 
-- Laravel/PHP
-- `composer.json`
-- `PTWebSocket/Server.js`
-- `Addons/MySQL`
-- `public/socket_config.json`
-- `Dockerfile`
-- credenciales, tokens reales ni configuración MySQL lista para importar
+`npm start` levanta un único servicio Node.js que:
 
-## Qué hace hoy el repositorio
+- sirve el frontend
+- expone `/runtime-config.js`
+- expone API REST en `/api/*`
+- acepta WebSocket en `/` para que el runtime del juego pueda iniciar sesión, cargar settings, suscribirse y jugar
 
-`npm start` sirve el frontend y redirige `/` a `ActionMoneyEGT/html5/index.html`.
+## Endpoints principales
 
-El frontend lee `/runtime-config.js`, que se genera desde variables de entorno del servicio HTTP. Si no se define un backend WebSocket real, el juego ahora falla de forma explícita en vez de inventar hosts, puertos o tokens.
+- `GET /health`
+- `GET /api/games`
+- `GET /api/sessions`
+- `POST /api/sessions`
+- `GET /api/sessions/:sessionId`
+- `POST /api/sessions/:sessionId/balance`
 
-## Variables de entorno soportadas por el servicio actual
-
-- `HOST` - host HTTP del servidor (`0.0.0.0` por defecto)
-- `PORT` - puerto HTTP del servidor (`8080` por defecto; Railway lo inyecta automáticamente)
-- `ACTION_MONEY_SLOT_TCP_HOST` o `TCP_HOST` - host del backend WebSocket
-- `ACTION_MONEY_SLOT_TCP_PORT` o `TCP_PORT` - puerto del backend WebSocket
-- `ACTION_MONEY_SLOT_SSL_HOST` o `SSL_HOST` - `true` para `wss`, `false` para `ws`
-- `ACTION_MONEY_SLOT_GAME_NAME` o `GAME_NAME` - nombre del juego (`ActionMoneySlot`)
-- `ACTION_MONEY_SLOT_LANGUAGE` o `LANGUAGE` - idioma inicial (`en`)
-- `ACTION_MONEY_SLOT_CURRENCY` o `CURRENCY` - moneda inicial (`EUR`)
-- `ACTION_MONEY_SLOT_TOKEN` o `TOKEN` - token/sesión inicial, si el backend real lo requiere
-
-## Ejecutar localmente
+## Flujo rápido local
 
 ```bash
 npm install
@@ -49,77 +38,34 @@ Abrir:
 http://localhost:8080
 ```
 
-Si `ACTION_MONEY_SLOT_TCP_HOST` o `ACTION_MONEY_SLOT_TCP_PORT` no están definidos, el frontend mostrará un error de configuración en lugar de conectarse a un host ficticio.
+El frontend genera o reutiliza `sessionId` en `sessionStorage` y el backend crea la sesión en memoria si todavía no existe.
 
-## Despliegue en Railway
+## Crear una sesión por API
 
-### Servicio que sí puede desplegarse con este repo
-
-Un servicio Node.js para servir el frontend:
-
-- **Build command**: `npm install`
-- **Start command**: `npm start`
-- **Healthcheck**: `/health`
-- **Puerto HTTP**: `process.env.PORT`
-
-Variables mínimas recomendadas en Railway para ese servicio:
-
-```text
-ACTION_MONEY_SLOT_TCP_HOST=<host-del-websocket-real>
-ACTION_MONEY_SLOT_TCP_PORT=<puerto-del-websocket-real>
-ACTION_MONEY_SLOT_SSL_HOST=true
-ACTION_MONEY_SLOT_GAME_NAME=ActionMoneySlot
-ACTION_MONEY_SLOT_LANGUAGE=en
-ACTION_MONEY_SLOT_CURRENCY=EUR
-ACTION_MONEY_SLOT_TOKEN=<token-real-o-vacío-si-el-backend-lo-permite>
+```bash
+curl -X POST http://localhost:8080/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"playerName":"demo","balance":500000,"currency":"EUR","language":"en"}'
 ```
 
-### Qué falta para la arquitectura del proveedor
+La respuesta incluye `session.id` y `launchUrl`.
 
-La arquitectura descrita por el proveedor requiere componentes que **no están en este repositorio**:
+## Variables de entorno soportadas
 
-1. **Laravel/PHP** para el backend del juego
-2. **MySQL 5.7+** y el dump de `Addons/MySQL`
-3. **PTWebSocket/Server.js** ejecutándose como servicio persistente separado
-4. **public/socket_config.json** con el dominio final, sin `www` ni protocolo, si ese archivo existe en el paquete del proveedor
-
-### Orden de despliegue recomendado cuando tengas esos componentes
-
-1. Desplegar/levantar MySQL y cargar el dump de `Addons/MySQL`
-2. Desplegar Laravel/PHP con su `.env` real y conexión a MySQL
-3. Desplegar el WebSocket Node.js del proveedor (`PTWebSocket/Server.js`) como **otro servicio**
-4. Desplegar este frontend apuntando a la URL pública del WebSocket real
-
-### Sobre el WebSocket del proveedor
-
-El texto del proveedor habla de:
-
-- Node.js 12 para algunos juegos
-- `PTWebSocket/Server.js`
-- `public/socket_config.json`
-- puerto `8449`
-
-Pero ninguno de esos archivos existe en este repositorio actual, así que aquí **no se puede**:
-
-- arrancar `PTWebSocket/Server.js`
-- configurar PM2
-- abrir/validar `8449` desde código del proveedor
-- preparar `.env.example` de Laravel ni `composer` porque Laravel no está presente
-
-Cuando el proveedor entregue esos archivos, lo correcto en Railway será separarlos por servicio en lugar de asumir PM2 dentro del mismo contenedor del frontend.
-
-## Validaciones mínimas incluidas
-
-`npm test` comprueba:
-
-- sintaxis de `scripts/start-server.js`
-- respuesta HTTP de `/health`
-- redirección de `/` a `ActionMoneyEGT/html5/index.html`
-- rechazo de path traversal
-- ausencia de fallbacks ficticios para host/puerto/token WebSocket
+- `HOST` - host HTTP del servidor (`0.0.0.0` por defecto)
+- `PORT` - puerto HTTP del servidor (`8080` por defecto)
+- `ACTION_MONEY_SLOT_TCP_HOST` o `TCP_HOST` - host WebSocket publicado en `runtime-config.js` (si no se define, usa el mismo host de la petición HTTP)
+- `ACTION_MONEY_SLOT_TCP_PORT` o `TCP_PORT` - puerto WebSocket publicado en `runtime-config.js` (si no se define, usa el mismo puerto de la petición HTTP)
+- `ACTION_MONEY_SLOT_SSL_HOST` o `SSL_HOST` - `true` para `wss`, `false` para `ws` (si no se define, se infiere por `x-forwarded-proto`)
+- `ACTION_MONEY_SLOT_GAME_NAME` o `GAME_NAME` - nombre inicial del juego (`ActionMoneySlot`)
+- `ACTION_MONEY_SLOT_LANGUAGE` o `LANGUAGE` - idioma inicial (`en`)
+- `ACTION_MONEY_SLOT_CURRENCY` o `CURRENCY` - moneda inicial (`EUR`)
+- `ACTION_MONEY_SLOT_TOKEN` o `TOKEN` - sesión inicial opcional; también se publica como `sessionId`
+- `ACTION_MONEY_SLOT_PLAYER_NAME` - nombre por defecto del jugador demo
+- `ACTION_MONEY_SLOT_START_BALANCE` - saldo inicial por defecto para sesiones creadas automáticamente
 
 ## Limitaciones actuales
 
-- El repositorio por sí solo **no implementa** backend de casino, saldo, créditos ni sesión real.
-- El token debe venir del backend real; este repositorio no genera ni persiste tokens.
-- Sin Laravel, MySQL o `PTWebSocket/Server.js`, solo puede desplegarse el frontend estático con validación de configuración.
+- El backend es **en memoria**; reiniciar el proceso borra sesiones y saldo.
+- La implementación incluida cubre el flujo mínimo para correr `ActionMoneySlot` con login, settings, subscribe y apuestas básicas.
+- La arquitectura soporta descubrir más juegos bajo `ActionMoneyEGT/html5/games/*/*`, pero la lógica específica de cada juego adicional debe añadirse si requiere reglas o respuestas distintas.

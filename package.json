@@ -6,5 +6,8 @@
     "start": "node scripts/start-server.js",
     "check": "node --check scripts/start-server.js",
     "test": "node scripts/validate-runtime.js"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
   }
 }

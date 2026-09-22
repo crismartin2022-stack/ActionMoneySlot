@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const { createBackend, parsePathname } = require('./game-backend');
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = normalizePort(process.env.PORT, 8080);
@@ -63,7 +64,8 @@ function buildRuntimeConfig(env) {
     gameName,
     game: gameName,
     language,
-    currency
+    currency,
+    apiBase: '/api'
   };
 
   if (tcpHost) {
@@ -79,6 +81,7 @@ function buildRuntimeConfig(env) {
   }
   if (token) {
     runtimeConfig.token = token;
+    runtimeConfig.sessionId = token;
   }
 
   return runtimeConfig;
@@ -139,8 +142,40 @@ function sendJson(res, statusCode, body, shouldSendBody) {
   res.end(shouldSendBody ? JSON.stringify(body) : undefined);
 }
 
-function sendRuntimeConfig(res, runtimeConfig, shouldSendBody) {
-  const body = `window.__ACTION_MONEY_SLOT_CONFIG = ${JSON.stringify(runtimeConfig, null, 2)};\n`;
+function inferSameOriginRuntimeConfig(req, runtimeConfig) {
+  const inferredConfig = { ...runtimeConfig };
+  const forwardedProtoHeader = Array.isArray(req.headers['x-forwarded-proto'])
+    ? req.headers['x-forwarded-proto'][0]
+    : req.headers['x-forwarded-proto'];
+  const forwardedProto = typeof forwardedProtoHeader === 'string'
+    ? forwardedProtoHeader.split(',')[0].trim().toLowerCase()
+    : '';
+  const hostHeader = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
+  const requestUrl = hostHeader ? `http://${hostHeader}` : null;
+  const parsedHost = requestUrl ? new URL(requestUrl) : null;
+
+  if (!inferredConfig.tcpHost && parsedHost) {
+    inferredConfig.tcpHost = parsedHost.hostname;
+  }
+
+  if (!inferredConfig.tcpPort) {
+    if (parsedHost && parsedHost.port) {
+      inferredConfig.tcpPort = parsedHost.port;
+    } else {
+      inferredConfig.tcpPort = forwardedProto === 'https' ? '443' : '80';
+    }
+  }
+
+  if (typeof inferredConfig.sslHost !== 'boolean') {
+    inferredConfig.sslHost = forwardedProto === 'https';
+  }
+
+  return inferredConfig;
+}
+
+function sendRuntimeConfig(req, res, runtimeConfig, shouldSendBody) {
+  const effectiveRuntimeConfig = inferSameOriginRuntimeConfig(req, runtimeConfig);
+  const body = `window.__ACTION_MONEY_SLOT_CONFIG = ${JSON.stringify(effectiveRuntimeConfig, null, 2)};\n`;
   res.writeHead(200, {
     'Cache-Control': 'no-store',
     'Content-Type': 'application/javascript; charset=utf-8'
@@ -223,10 +258,29 @@ function resolveRequestPath(cleanPath) {
 
 function createServer(options) {
   const runtimeConfig = options && options.runtimeConfig ? options.runtimeConfig : buildRuntimeConfig();
+  const backend = createBackend({
+    rootDir: ROOT,
+    defaults: {
+      balance: process.env.ACTION_MONEY_SLOT_START_BALANCE,
+      currency: runtimeConfig.currency,
+      language: runtimeConfig.language,
+      playerName: process.env.ACTION_MONEY_SLOT_PLAYER_NAME
+    }
+  });
 
-  return http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const method = req.method || 'GET';
     const shouldSendBody = method !== 'HEAD';
+    const pathname = parsePathname(req.url || '/');
+
+    if (pathname.startsWith('/api/')) {
+      const handled = await backend.handleApiRequest(req, res, pathname, shouldSendBody);
+      if (!handled) {
+        sendJson(res, 404, { error: 'Not Found' }, shouldSendBody);
+      }
+      return;
+    }
+
     if (!['GET', 'HEAD'].includes(method)) {
       res.writeHead(405, {
         Allow: 'GET, HEAD',
@@ -251,13 +305,19 @@ function createServer(options) {
     if (requestPath === '/health' || requestPath === '/healthz') {
       sendJson(res, 200, {
         ok: true,
-        entrypoint: DEFAULT_ENTRYPOINT
+        entrypoint: DEFAULT_ENTRYPOINT,
+        apiBase: '/api',
+        games: backend.games.map((game) => ({
+          gameIdentificationNumber: game.gameIdentificationNumber,
+          gameName: game.gameName,
+          gameType: game.gameType
+        }))
       }, shouldSendBody);
       return;
     }
 
     if (requestPath === '/runtime-config.js') {
-      sendRuntimeConfig(res, runtimeConfig, shouldSendBody);
+      sendRuntimeConfig(req, res, runtimeConfig, shouldSendBody);
       return;
     }
 
@@ -295,6 +355,16 @@ function createServer(options) {
       sendFile(resolvedPath.filePath, res, shouldSendBody);
     });
   });
+
+  server.on('upgrade', (req, socket, head) => {
+    backend.handleUpgrade(req, socket, head);
+  });
+
+  server.on('close', () => {
+    backend.shutdown();
+  });
+
+  return server;
 }
 
 function startServer() {
@@ -321,6 +391,7 @@ module.exports = {
   buildRuntimeConfig,
   createServer,
   decodeRequestPath,
+  inferSameOriginRuntimeConfig,
   normalizeOptionalBoolean,
   normalizePort,
   resolveRequestPath,

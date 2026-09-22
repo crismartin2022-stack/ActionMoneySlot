@@ -3,6 +3,8 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "start": "node scripts/start-server.js"
+    "start": "node scripts/start-server.js",
+    "check": "node --check scripts/start-server.js",
+    "test": "node scripts/validate-runtime.js"
   }
 }

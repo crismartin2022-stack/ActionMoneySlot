@@ -1,10 +1,12 @@
-const fs = require('node:fs');
-const path = require('node:path');
-const http = require('node:http');
+const fs = require('fs');
+const path = require('path');
+const http = require('http');
 
 const HOST = process.env.HOST || '0.0.0.0';
-const PORT = Number(process.env.PORT || 8080);
+const PORT = normalizePort(process.env.PORT, 8080);
 const ROOT = path.resolve(__dirname, '..');
+const STATIC_ROUTE_PREFIX = '/ActionMoneyEGT';
+const STATIC_ROOT = path.join(ROOT, 'ActionMoneyEGT');
 const DEFAULT_ENTRYPOINT = '/ActionMoneyEGT/html5/index.html';
 
 const MIME_TYPES = {
@@ -23,55 +25,63 @@ const MIME_TYPES = {
   '.xml': 'application/xml; charset=utf-8'
 };
 
-const runtimeConfig = buildRuntimeConfig();
-
-function buildRuntimeConfig() {
+function buildRuntimeConfig(env) {
+  const source = env || process.env;
   const tcpHost = getFirstDefined([
-    process.env.ACTION_MONEY_SLOT_TCP_HOST,
-    process.env.TCP_HOST,
-    'mgs-demo.egtmgs.com'
+    source.ACTION_MONEY_SLOT_TCP_HOST,
+    source.TCP_HOST
   ]);
   const tcpPort = getFirstDefined([
-    process.env.ACTION_MONEY_SLOT_TCP_PORT,
-    process.env.TCP_PORT,
-    '8095'
+    source.ACTION_MONEY_SLOT_TCP_PORT,
+    source.TCP_PORT
   ]);
   const gameName = getFirstDefined([
-    process.env.ACTION_MONEY_SLOT_GAME_NAME,
-    process.env.GAME_NAME,
+    source.ACTION_MONEY_SLOT_GAME_NAME,
+    source.GAME_NAME,
     'ActionMoneySlot'
   ]);
   const language = getFirstDefined([
-    process.env.ACTION_MONEY_SLOT_LANGUAGE,
-    process.env.LANGUAGE,
+    source.ACTION_MONEY_SLOT_LANGUAGE,
+    source.LANGUAGE,
     'en'
   ]);
   const currency = getFirstDefined([
-    process.env.ACTION_MONEY_SLOT_CURRENCY,
-    process.env.CURRENCY,
+    source.ACTION_MONEY_SLOT_CURRENCY,
+    source.CURRENCY,
     'EUR'
   ]);
   const token = getFirstDefined([
-    process.env.ACTION_MONEY_SLOT_TOKEN,
-    process.env.TOKEN,
-    'local-test-token'
+    source.ACTION_MONEY_SLOT_TOKEN,
+    source.TOKEN
   ]);
   const sslHostValue = getFirstDefined([
-    process.env.ACTION_MONEY_SLOT_SSL_HOST,
-    process.env.SSL_HOST,
-    'true'
+    source.ACTION_MONEY_SLOT_SSL_HOST,
+    source.SSL_HOST
   ]);
 
-  return {
-    tcpHost,
-    tcpPort,
-    sslHost: normalizeBoolean(sslHostValue, true),
+  const runtimeConfig = {
     gameName,
     game: gameName,
     language,
-    currency,
-    token
+    currency
   };
+
+  if (tcpHost) {
+    runtimeConfig.tcpHost = tcpHost;
+  }
+  if (tcpPort) {
+    runtimeConfig.tcpPort = tcpPort;
+  }
+
+  const sslHost = normalizeOptionalBoolean(sslHostValue);
+  if (typeof sslHost === 'boolean') {
+    runtimeConfig.sslHost = sslHost;
+  }
+  if (token) {
+    runtimeConfig.token = token;
+  }
+
+  return runtimeConfig;
 }
 
 function getFirstDefined(values) {
@@ -84,9 +94,9 @@ function getFirstDefined(values) {
   return '';
 }
 
-function normalizeBoolean(value, fallback) {
+function normalizeOptionalBoolean(value) {
   if (value === undefined || value === null || value === '') {
-    return fallback;
+    return undefined;
   }
 
   if (typeof value === 'boolean') {
@@ -101,7 +111,24 @@ function normalizeBoolean(value, fallback) {
     return false;
   }
 
-  return fallback;
+  return undefined;
+}
+
+function normalizePort(value, fallback) {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return fallback;
+  }
+
+  if (!/^\d+$/.test(String(value).trim())) {
+    throw new Error('PORT must be a numeric TCP port.');
+  }
+
+  const port = Number(String(value).trim());
+  if (port < 1 || port > 65535) {
+    throw new Error('PORT must be between 1 and 65535.');
+  }
+
+  return port;
 }
 
 function sendJson(res, statusCode, body, shouldSendBody) {
@@ -112,7 +139,7 @@ function sendJson(res, statusCode, body, shouldSendBody) {
   res.end(shouldSendBody ? JSON.stringify(body) : undefined);
 }
 
-function sendRuntimeConfig(res, shouldSendBody) {
+function sendRuntimeConfig(res, runtimeConfig, shouldSendBody) {
   const body = `window.__ACTION_MONEY_SLOT_CONFIG = ${JSON.stringify(runtimeConfig, null, 2)};\n`;
   res.writeHead(200, {
     'Cache-Control': 'no-store',
@@ -157,24 +184,33 @@ function decodeRequestPath(requestPath) {
 }
 
 function resolveRequestPath(cleanPath) {
-
   if (cleanPath === '/') {
     return {
       redirect: DEFAULT_ENTRYPOINT
     };
   }
 
-  const relativeRequestPath = cleanPath.replace(/^\/+/, '');
-  const normalizedPath = path.normalize(path.join(ROOT, relativeRequestPath));
-  const normalizedRoot = path.normalize(ROOT);
-  const rootPrefix = normalizedRoot.endsWith(path.sep)
-    ? normalizedRoot
-    : normalizedRoot + path.sep;
-  const comparablePath = normalizedPath.toLowerCase();
-  const comparableRoot = normalizedRoot.toLowerCase();
-  const comparableRootPrefix = rootPrefix.toLowerCase();
+  if (cleanPath === STATIC_ROUTE_PREFIX) {
+    return {
+      redirect: DEFAULT_ENTRYPOINT
+    };
+  }
 
-  if (comparablePath !== comparableRoot && !comparablePath.startsWith(comparableRootPrefix)) {
+  if (!cleanPath.startsWith(`${STATIC_ROUTE_PREFIX}/`)) {
+    return {
+      error: 404
+    };
+  }
+
+  const relativeRequestPath = cleanPath.slice(STATIC_ROUTE_PREFIX.length + 1);
+  const normalizedPath = path.resolve(STATIC_ROOT, relativeRequestPath || '.');
+  const relativeToStaticRoot = path.relative(STATIC_ROOT, normalizedPath);
+
+  if (
+    relativeToStaticRoot === '..'
+    || relativeToStaticRoot.startsWith(`..${path.sep}`)
+    || path.isAbsolute(relativeToStaticRoot)
+  ) {
     return {
       error: 403
     };
@@ -185,79 +221,112 @@ function resolveRequestPath(cleanPath) {
   };
 }
 
-const server = http.createServer((req, res) => {
-  const method = req.method || 'GET';
-  const shouldSendBody = method !== 'HEAD';
-  if (!['GET', 'HEAD'].includes(method)) {
-    res.writeHead(405, {
-      Allow: 'GET, HEAD',
-      'Content-Type': 'text/plain; charset=utf-8'
-    });
-    res.end(shouldSendBody ? 'Method Not Allowed' : undefined);
-    return;
-  }
+function createServer(options) {
+  const runtimeConfig = options && options.runtimeConfig ? options.runtimeConfig : buildRuntimeConfig();
 
-  const decodedRequestPath = decodeRequestPath(req.url);
-
-  if (decodedRequestPath.error) {
-    res.writeHead(decodedRequestPath.error, {
-      'Content-Type': 'text/plain; charset=utf-8'
-    });
-    res.end(shouldSendBody ? 'Bad Request' : undefined);
-    return;
-  }
-
-  const requestPath = decodedRequestPath.cleanPath;
-
-  if (requestPath === '/health' || requestPath === '/healthz') {
-    sendJson(res, 200, {
-      ok: true,
-      entrypoint: DEFAULT_ENTRYPOINT
-    }, shouldSendBody);
-    return;
-  }
-
-  if (requestPath === '/runtime-config.js') {
-    sendRuntimeConfig(res, shouldSendBody);
-    return;
-  }
-
-  const resolvedPath = resolveRequestPath(requestPath);
-
-  if (resolvedPath.redirect) {
-    res.writeHead(302, {
-      Location: resolvedPath.redirect
-    });
-    res.end();
-    return;
-  }
-
-  if (resolvedPath.error) {
-    const statusCode = resolvedPath.error;
-    res.writeHead(statusCode, {
-      'Content-Type': 'text/plain; charset=utf-8'
-    });
-    res.end(shouldSendBody ? (statusCode === 400 ? 'Bad Request' : 'Forbidden') : undefined);
-    return;
-  }
-
-  fs.stat(resolvedPath.filePath, (error, stats) => {
-    if (!error && stats.isDirectory()) {
-      sendFile(path.join(resolvedPath.filePath, 'index.html'), res, shouldSendBody);
+  return http.createServer((req, res) => {
+    const method = req.method || 'GET';
+    const shouldSendBody = method !== 'HEAD';
+    if (!['GET', 'HEAD'].includes(method)) {
+      res.writeHead(405, {
+        Allow: 'GET, HEAD',
+        'Content-Type': 'text/plain; charset=utf-8'
+      });
+      res.end(shouldSendBody ? 'Method Not Allowed' : undefined);
       return;
     }
 
-    sendFile(resolvedPath.filePath, res, shouldSendBody);
+    const decodedRequestPath = decodeRequestPath(req.url);
+
+    if (decodedRequestPath.error) {
+      res.writeHead(decodedRequestPath.error, {
+        'Content-Type': 'text/plain; charset=utf-8'
+      });
+      res.end(shouldSendBody ? 'Bad Request' : undefined);
+      return;
+    }
+
+    const requestPath = decodedRequestPath.cleanPath;
+
+    if (requestPath === '/health' || requestPath === '/healthz') {
+      sendJson(res, 200, {
+        ok: true,
+        entrypoint: DEFAULT_ENTRYPOINT
+      }, shouldSendBody);
+      return;
+    }
+
+    if (requestPath === '/runtime-config.js') {
+      sendRuntimeConfig(res, runtimeConfig, shouldSendBody);
+      return;
+    }
+
+    const resolvedPath = resolveRequestPath(requestPath);
+
+    if (resolvedPath.redirect) {
+      res.writeHead(302, {
+        Location: resolvedPath.redirect
+      });
+      res.end();
+      return;
+    }
+
+    if (resolvedPath.error) {
+      const statusCode = resolvedPath.error;
+      res.writeHead(statusCode, {
+        'Content-Type': 'text/plain; charset=utf-8'
+      });
+      let responseBody = 'Forbidden';
+      if (statusCode === 400) {
+        responseBody = 'Bad Request';
+      } else if (statusCode === 404) {
+        responseBody = 'Not Found';
+      }
+      res.end(shouldSendBody ? responseBody : undefined);
+      return;
+    }
+
+    fs.stat(resolvedPath.filePath, (error, stats) => {
+      if (!error && stats.isDirectory()) {
+        sendFile(path.join(resolvedPath.filePath, 'index.html'), res, shouldSendBody);
+        return;
+      }
+
+      sendFile(resolvedPath.filePath, res, shouldSendBody);
+    });
   });
-});
+}
 
-server.on('error', (error) => {
-  console.error('Failed to start ActionMoneySlot server:', error);
-  process.exit(1);
-});
+function startServer() {
+  const server = createServer();
 
-server.listen(PORT, HOST, () => {
-  console.log(
-    `ActionMoneySlot server listening on http://${HOST}:${PORT} -> ${DEFAULT_ENTRYPOINT}`
-  );
-});
+  server.on('error', (error) => {
+    console.error('Failed to start ActionMoneySlot server:', error);
+    process.exit(1);
+  });
+
+  server.listen(PORT, HOST, () => {
+    console.log(
+      `ActionMoneySlot server listening on http://${HOST}:${PORT} -> ${DEFAULT_ENTRYPOINT}`
+    );
+  });
+
+  return server;
+}
+
+module.exports = {
+  DEFAULT_ENTRYPOINT,
+  HOST,
+  PORT,
+  buildRuntimeConfig,
+  createServer,
+  decodeRequestPath,
+  normalizeOptionalBoolean,
+  normalizePort,
+  resolveRequestPath,
+  startServer
+};
+
+if (require.main === module) {
+  startServer();
+}

@@ -384,6 +384,7 @@ class SessionStore {
   constructor(games, options = {}) {
     this.games = games;
     this.sessions = new Map();
+    this.closed = false;
     this.defaults = {
       balance: normalizeNumber(options.balance, DEFAULT_BALANCE),
       currency: options.currency || DEFAULT_CURRENCY,
@@ -524,7 +525,7 @@ class SessionStore {
       this.createSession({
         id: 'demo-session',
         sessionKey: 'LOCAL:demo-session',
-        playerName: 'demo-player'
+        playerName: this.defaults.playerName
       });
     }
   }
@@ -639,6 +640,10 @@ class SessionStore {
   }
 
   close() {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
     this.db.close();
   }
 

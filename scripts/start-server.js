@@ -378,6 +378,12 @@ function createServer(options) {
     isClosed = true;
   });
 
+  function createNotRunningError() {
+    const error = new Error('Server is not running.');
+    error.code = 'ERR_SERVER_NOT_RUNNING';
+    return error;
+  }
+
   function flushCloseCallbacks(error) {
     while (closeCallbacks.length) {
       const callback = closeCallbacks.shift();
@@ -388,9 +394,7 @@ function createServer(options) {
   server.close = (callback) => {
     if (isClosed) {
       if (typeof callback === 'function') {
-        const error = new Error('Server is not running.');
-        error.code = 'ERR_SERVER_NOT_RUNNING';
-        process.nextTick(() => callback(error));
+        process.nextTick(() => callback(createNotRunningError()));
       }
       return server;
     }
@@ -402,10 +406,18 @@ function createServer(options) {
     }
     isClosing = true;
     server.off('upgrade', upgradeHandler);
+    if (!server.listening) {
+      backend.shutdown((backendError) => {
+        isClosed = true;
+        isClosing = false;
+        flushCloseCallbacks(backendError || createNotRunningError());
+      });
+      return server;
+    }
     backend.shutdown((backendError) => {
       originalClose((serverError) => {
         const finalError = backendError || serverError || null;
-        if (finalError && !isClosed) {
+        if (finalError && finalError.code !== 'ERR_SERVER_NOT_RUNNING' && !isClosed) {
           isClosing = false;
         } else {
           isClosed = true;

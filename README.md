@@ -127,4 +127,4 @@ Si agregas más paquetes compatibles bajo `ActionMoneyEGT/html5/games`, aparecer
 
 - La lógica de apuesta incluida es genérica para slots y cubre el flujo mínimo del runtime.
 - Si un juego adicional requiere reglas especiales, bonus propietarios o mensajes distintos, habrá que extender el bridge para ese juego concreto.
-- `node:sqlite` es experimental en Node 22, aunque ya funciona correctamente en este repo.
+- `node:sqlite` sigue marcado como experimental en Node 22.13+, pero en este repo ya queda soportado sobre esa versión mínima.

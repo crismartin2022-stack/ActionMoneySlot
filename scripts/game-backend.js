@@ -1207,7 +1207,8 @@ function createBackend(options) {
               }))
             }, shouldSendBody);
           } catch (error) {
-            sendApiJson(res, 400, { error: error.message }, shouldSendBody);
+            const statusCode = error && error.message === 'Session already exists.' ? 409 : 400;
+            sendApiJson(res, statusCode, { error: error.message }, shouldSendBody);
           }
           return true;
         }
@@ -1342,11 +1343,14 @@ function createBackend(options) {
         return;
       }
       const origin = req.headers.origin;
-      const host = req.headers.host;
-      if (origin && host) {
+      const forwardedHost = req.headers['x-forwarded-host'];
+      const forwardedProto = req.headers['x-forwarded-proto'];
+      const expectedHost = String(forwardedHost || req.headers.host || '').split(',')[0].trim();
+      const expectedProtocol = String(forwardedProto || 'http').split(',')[0].trim();
+      if (origin && expectedHost) {
         try {
           const originUrl = new URL(origin);
-          if (originUrl.host !== host) {
+          if (originUrl.host !== expectedHost || originUrl.protocol !== `${expectedProtocol}:`) {
             socket.destroy();
             return;
           }

@@ -151,10 +151,9 @@
           }
           var effectiveSslHost = hasExplicitScheme ? parsedHost.protocol === 'wss:' : sslHost;
           var protocol = effectiveSslHost ? 'wss://' : 'ws://';
-          var defaultPort = effectiveSslHost ? '443' : '80';
           var normalizedHost = parsedHost.hostname;
           var detectedPort = parsedHost.port;
-          var normalizedPort = detectedPort || portInput || defaultPort;
+          var normalizedPort = detectedPort || portInput;
 
           if (!normalizedHost) {
             return { error: 'tcpHost no contiene un host válido.' };
@@ -162,6 +161,10 @@
 
           if (normalizedHost.indexOf(':') !== -1 && normalizedHost.charAt(0) !== '[') {
             normalizedHost = '[' + normalizedHost + ']';
+          }
+
+          if (!normalizedPort) {
+            return { error: 'tcpPort no puede estar vacío.' };
           }
 
           if (!/^\d+$/.test(normalizedPort)) {
@@ -311,12 +314,16 @@
           : window.location.protocol === 'https:';
         var sslHost = getBooleanQueryParam('sslHost', defaultSslHost);
         var requestedSslHost = sslHost;
-        var rawTcpHost = getQueryParam('tcpHost', runtimeConfig.tcpHost || window.location.hostname);
+        var rawTcpHost = getQueryParam('tcpHost', runtimeConfig.tcpHost || '');
         var tcpPortParam = gptsInit.getParameterBy('tcpPort');
         var hasExplicitTcpPort = tcpPortParam !== null && tcpPortParam !== '';
         var rawTcpPort = hasExplicitTcpPort
           ? tcpPortParam
-          : String(runtimeConfig.tcpPort || (sslHost ? '443' : '80'));
+          : String(runtimeConfig.tcpPort || '');
+        if (!String(rawTcpHost || '').trim()) {
+          showRuntimeError('Falta configurar tcpHost. Define ACTION_MONEY_SLOT_TCP_HOST/TCP_HOST en el servicio del frontend o pásalo por query string.');
+          return;
+        }
         var socketConfig = normalizeSocketConfig(rawTcpHost, rawTcpPort, sslHost, hasExplicitTcpPort);
         var gameName = getQueryParam('gameName', getQueryParam('game', runtimeConfig.gameName || runtimeConfig.game || 'ActionMoneySlot'));
         if (socketConfig.error) {
@@ -411,7 +418,7 @@
             game: gameName,
             language: getQueryParam('language', runtimeConfig.language || 'en'),
             currency: getQueryParam('currency', runtimeConfig.currency || 'EUR'),
-            token: getQueryParam('token', runtimeConfig.token || 'local-test-token')
+            token: getQueryParam('token', runtimeConfig.token || '')
           });
         } catch (error) {
           showRuntimeError('Falló la inicialización: ' + (error && error.message ? error.message : String(error)));

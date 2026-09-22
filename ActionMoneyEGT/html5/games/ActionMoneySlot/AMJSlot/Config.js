@@ -166,4 +166,4 @@ function Config()
 }
 
 com.egt.baseslot.Config = Config;
-com.egt.cascadeslot.buildTime = 1561035489401;
+com.egt.baseslot.buildTime = 1561035489401;

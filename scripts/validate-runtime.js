@@ -11,7 +11,9 @@ const rootDir = path.resolve(__dirname, '..');
 const serverScript = path.join(__dirname, 'start-server.js');
 const backendScript = path.join(__dirname, 'game-backend.js');
 const indexHtmlPath = path.join(rootDir, 'ActionMoneyEGT', 'html5', 'index.html');
+const contentJsonPath = path.join(rootDir, 'ActionMoneyEGT', 'html5', 'content.json');
 const gptsPath = path.join(rootDir, 'ActionMoneyEGT', 'html5', 'gpts.min.js');
+const gameConfigPath = path.join(rootDir, 'ActionMoneyEGT', 'html5', 'games', 'ActionMoneySlot', 'AMJSlot', 'Config.js');
 const {
   DEFAULT_ENTRYPOINT,
   buildRuntimeConfig,
@@ -150,8 +152,37 @@ function loadNormalizeSocketConfig(indexHtml) {
   return sandbox.module.exports;
 }
 
+function evaluateGameConfig(configSource) {
+  const sandbox = {
+    com: {
+      egt: {
+        baseslot: {}
+      }
+    }
+  };
+  vm.runInNewContext(configSource, sandbox, {
+    filename: 'ActionMoneyEGT/html5/games/ActionMoneySlot/AMJSlot/Config.js'
+  });
+  return sandbox.com.egt.baseslot;
+}
+
+function findGameLoader(loaders, gameName) {
+  for (const loader of loaders || []) {
+    if (loader && loader.type === 'GameLoader' && loader.vars && loader.vars.name === gameName) {
+      return loader;
+    }
+    if (loader && Array.isArray(loader.children)) {
+      const nestedLoader = findGameLoader(loader.children, gameName);
+      if (nestedLoader) {
+        return nestedLoader;
+      }
+    }
+  }
+  return null;
+}
+
 async function main() {
-  const syntaxChecks = [serverScript, backendScript].map((scriptPath) => spawnSync(process.execPath, ['--check', scriptPath], {
+  const syntaxChecks = [serverScript, backendScript, gameConfigPath].map((scriptPath) => spawnSync(process.execPath, ['--check', scriptPath], {
     cwd: rootDir,
     encoding: 'utf8'
   }));
@@ -205,6 +236,15 @@ async function main() {
   const gptsScript = fs.readFileSync(gptsPath, 'utf8');
   assert(gptsScript.includes("if('string'==typeof b.data&&0===b.data.indexOf(':::')){b.data=b.data.slice(3);}"), 'gpts websocket parser should strip a single transport prefix.');
   assert(gptsScript.includes('0===d.indexOf(":::")&&(d=d.slice(3));'), 'gpts onmessage parser should normalize the transport prefix before mapping.');
+  const contentJson = JSON.parse(fs.readFileSync(contentJsonPath, 'utf8'));
+  const actionMoneyLoader = findGameLoader(contentJson.loaders, 'AMJSlot');
+  assert(actionMoneyLoader, 'content.json should keep the AMJSlot GameLoader entry.');
+  assert.strictEqual(actionMoneyLoader.vars.documentClassName, 'com.egt.actionMoneySlot.Main');
+  assert.strictEqual(actionMoneyLoader.url, 'ActionMoneySlot/Game.min.js?build=1562839706157');
+  const gameConfigSource = fs.readFileSync(gameConfigPath, 'utf8');
+  const evaluatedBaseSlot = evaluateGameConfig(gameConfigSource);
+  assert.strictEqual(typeof evaluatedBaseSlot.Config, 'function', 'Config.js should export the config constructor on com.egt.baseslot.');
+  assert.strictEqual(evaluatedBaseSlot.buildTime, 1561035489401, 'Config.js should set buildTime on the existing baseslot namespace.');
 
   const runtimeConfig = buildRuntimeConfig({
     ACTION_MONEY_SLOT_SSL_HOST: 'false',

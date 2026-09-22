@@ -1,41 +1,44 @@
 # ActionMoneySlot
 
-Este repositorio **sí contiene**:
+Este repositorio ahora incluye:
 
 - frontend del juego en `/home/runner/work/ActionMoneySlot/ActionMoneySlot/ActionMoneyEGT`
 - servidor HTTP Node.js en `/home/runner/work/ActionMoneySlot/ActionMoneySlot/scripts/start-server.js`
-- `package.json`
-- `railway.json`
+- backend API REST + backend WebSocket del juego en `/home/runner/work/ActionMoneySlot/ActionMoneySlot/scripts/game-backend.js`
+- persistencia real en SQLite usando `node:sqlite`
 
-Este repositorio **no contiene** actualmente:
+## Qué hace ahora el repositorio
 
-- Laravel/PHP
-- `composer.json`
-- `PTWebSocket/Server.js`
-- `Addons/MySQL`
-- `public/socket_config.json`
-- `Dockerfile`
-- credenciales, tokens reales ni configuración MySQL lista para importar
+`npm start` levanta un único servicio Node.js que:
 
-## Qué hace hoy el repositorio
+- sirve el frontend
+- expone `/runtime-config.js`
+- expone API REST configurable por `apiBase`
+- acepta WebSocket en `/` para login, settings, subscribe y apuestas
+- persiste sesiones, saldo y estado por juego en SQLite
+- descubre juegos disponibles bajo `ActionMoneyEGT/html5/games/*/*/Config.js`
 
-`npm start` sirve el frontend y redirige `/` a `ActionMoneyEGT/html5/index.html`.
+## Requisitos
 
-El frontend lee `/runtime-config.js`, que se genera desde variables de entorno del servicio HTTP. Si no se define un backend WebSocket real, el juego ahora falla de forma explícita en vez de inventar hosts, puertos o tokens.
+- Node.js 22.13.0 o superior
+- npm
 
-## Variables de entorno soportadas por el servicio actual
+> Este proyecto depende de `node:sqlite` y `DatabaseSync`, disponibles sin flags a partir de Node.js 22.13.0.
 
-- `HOST` - host HTTP del servidor (`0.0.0.0` por defecto)
-- `PORT` - puerto HTTP del servidor (`8080` por defecto; Railway lo inyecta automáticamente)
-- `ACTION_MONEY_SLOT_TCP_HOST` o `TCP_HOST` - host del backend WebSocket
-- `ACTION_MONEY_SLOT_TCP_PORT` o `TCP_PORT` - puerto del backend WebSocket
-- `ACTION_MONEY_SLOT_SSL_HOST` o `SSL_HOST` - `true` para `wss`, `false` para `ws`
-- `ACTION_MONEY_SLOT_GAME_NAME` o `GAME_NAME` - nombre del juego (`ActionMoneySlot`)
-- `ACTION_MONEY_SLOT_LANGUAGE` o `LANGUAGE` - idioma inicial (`en`)
-- `ACTION_MONEY_SLOT_CURRENCY` o `CURRENCY` - moneda inicial (`EUR`)
-- `ACTION_MONEY_SLOT_TOKEN` o `TOKEN` - token/sesión inicial, si el backend real lo requiere
+> `apiBase` no puede ser `/` ni `/ws`, porque esas rutas quedan reservadas para el bridge WebSocket del juego.
 
-## Ejecutar localmente
+## Endpoints principales
+
+- `GET /health`
+- `GET /api/games`
+- `GET /api/games/:gameIdentificationNumber`
+- `GET /api/sessions`
+- `POST /api/sessions`
+- `GET /api/sessions/:sessionId`
+- `POST /api/sessions/:sessionId/select-game`
+- `POST /api/sessions/:sessionId/balance`
+
+## Flujo rápido local
 
 ```bash
 npm install
@@ -49,77 +52,79 @@ Abrir:
 http://localhost:8080
 ```
 
-Si `ACTION_MONEY_SLOT_TCP_HOST` o `ACTION_MONEY_SLOT_TCP_PORT` no están definidos, el frontend mostrará un error de configuración en lugar de conectarse a un host ficticio.
+El backend crea y mantiene una sesión persistente `demo-session` para correr local sin setup extra.
 
-## Despliegue en Railway
+## Crear una sesión por API
 
-### Servicio que sí puede desplegarse con este repo
-
-Un servicio Node.js para servir el frontend:
-
-- **Build command**: `npm install`
-- **Start command**: `npm start`
-- **Healthcheck**: `/health`
-- **Puerto HTTP**: `process.env.PORT`
-
-Variables mínimas recomendadas en Railway para ese servicio:
-
-```text
-ACTION_MONEY_SLOT_TCP_HOST=<host-del-websocket-real>
-ACTION_MONEY_SLOT_TCP_PORT=<puerto-del-websocket-real>
-ACTION_MONEY_SLOT_SSL_HOST=true
-ACTION_MONEY_SLOT_GAME_NAME=ActionMoneySlot
-ACTION_MONEY_SLOT_LANGUAGE=en
-ACTION_MONEY_SLOT_CURRENCY=EUR
-ACTION_MONEY_SLOT_TOKEN=<token-real-o-vacío-si-el-backend-lo-permite>
+```bash
+curl -X POST http://localhost:8080/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"playerName":"demo","balance":500000,"currency":"EUR","language":"en","gameType":"AMJSlot"}'
 ```
 
-### Qué falta para la arquitectura del proveedor
+La respuesta incluye:
 
-La arquitectura descrita por el proveedor requiere componentes que **no están en este repositorio**:
+- `session`
+- `launchUrl`
+- listado de juegos disponibles
 
-1. **Laravel/PHP** para el backend del juego
-2. **MySQL 5.7+** y el dump de `Addons/MySQL`
-3. **PTWebSocket/Server.js** ejecutándose como servicio persistente separado
-4. **public/socket_config.json** con el dominio final, sin `www` ni protocolo, si ese archivo existe en el paquete del proveedor
+## Cambiar el juego seleccionado de una sesión
 
-### Orden de despliegue recomendado cuando tengas esos componentes
+```bash
+curl -X POST http://localhost:8080/api/sessions/<sessionId>/select-game \
+  -H 'Content-Type: application/json' \
+  -d '{"gameIdentificationNumber":1}'
+```
 
-1. Desplegar/levantar MySQL y cargar el dump de `Addons/MySQL`
-2. Desplegar Laravel/PHP con su `.env` real y conexión a MySQL
-3. Desplegar el WebSocket Node.js del proveedor (`PTWebSocket/Server.js`) como **otro servicio**
-4. Desplegar este frontend apuntando a la URL pública del WebSocket real
+## Persistencia SQLite
 
-### Sobre el WebSocket del proveedor
+Por defecto la base se crea en:
 
-El texto del proveedor habla de:
+```text
+/home/runner/work/ActionMoneySlot/ActionMoneySlot/data/action-money-slot.sqlite
+```
 
-- Node.js 12 para algunos juegos
-- `PTWebSocket/Server.js`
-- `public/socket_config.json`
-- puerto `8449`
+Se puede cambiar con:
 
-Pero ninguno de esos archivos existe en este repositorio actual, así que aquí **no se puede**:
+- `ACTION_MONEY_SLOT_DB_PATH`
 
-- arrancar `PTWebSocket/Server.js`
-- configurar PM2
-- abrir/validar `8449` desde código del proveedor
-- preparar `.env.example` de Laravel ni `composer` porque Laravel no está presente
+Se persisten:
 
-Cuando el proveedor entregue esos archivos, lo correcto en Railway será separarlos por servicio en lugar de asumir PM2 dentro del mismo contenedor del frontend.
+- sesiones
+- saldo
+- juego seleccionado
+- estado por juego
+- estado del RNG por juego
 
-## Validaciones mínimas incluidas
+## Variables de entorno soportadas
 
-`npm test` comprueba:
+- `HOST` - host HTTP del servidor (`0.0.0.0` por defecto)
+- `PORT` - puerto HTTP del servidor (`8080` por defecto)
+- `ACTION_MONEY_SLOT_API_BASE` o `API_BASE` - base de la API (`/api` por defecto)
+- `ACTION_MONEY_SLOT_DB_PATH` - ruta del archivo SQLite
+- `ACTION_MONEY_SLOT_TCP_HOST` o `TCP_HOST` - host WebSocket publicado en `runtime-config.js` (si no se define, usa el mismo host de la petición HTTP)
+- `ACTION_MONEY_SLOT_TCP_PORT` o `TCP_PORT` - puerto WebSocket publicado en `runtime-config.js` (si no se define, usa el mismo puerto de la petición HTTP)
+- `ACTION_MONEY_SLOT_SSL_HOST` o `SSL_HOST` - `true` para `wss`, `false` para `ws` (si no se define, se infiere por `x-forwarded-proto`)
+- `ACTION_MONEY_SLOT_GAME_NAME` o `GAME_NAME` - nombre inicial del juego (`ActionMoneySlot`)
+- `ACTION_MONEY_SLOT_LANGUAGE` o `LANGUAGE` - idioma inicial (`en`)
+- `ACTION_MONEY_SLOT_CURRENCY` o `CURRENCY` - moneda inicial (`EUR`)
+- `ACTION_MONEY_SLOT_TOKEN` o `TOKEN` - sesión inicial opcional; también se publica como `sessionId`
+- `ACTION_MONEY_SLOT_PLAYER_NAME` - nombre por defecto del jugador demo
+- `ACTION_MONEY_SLOT_START_BALANCE` - saldo inicial por defecto para sesiones creadas automáticamente
 
-- sintaxis de `scripts/start-server.js`
-- respuesta HTTP de `/health`
-- redirección de `/` a `ActionMoneyEGT/html5/index.html`
-- rechazo de path traversal
-- ausencia de fallbacks ficticios para host/puerto/token WebSocket
+## Soporte multi-juego
+
+El backend ya no está cableado solo a `ActionMoneySlot`:
+
+- descubre juegos por carpeta/config
+- expone el catálogo por API
+- permite seleccionar juego por sesión
+- construye `launchUrl` con `game`, `gameType`, `gameIdentificationNumber`, `sessionId` y `apiBase`
+
+Si agregas más paquetes compatibles bajo `ActionMoneyEGT/html5/games`, aparecerán automáticamente en el catálogo si incluyen `Config.js`.
 
 ## Limitaciones actuales
 
-- El repositorio por sí solo **no implementa** backend de casino, saldo, créditos ni sesión real.
-- El token debe venir del backend real; este repositorio no genera ni persiste tokens.
-- Sin Laravel, MySQL o `PTWebSocket/Server.js`, solo puede desplegarse el frontend estático con validación de configuración.
+- La lógica de apuesta incluida es genérica para slots y cubre el flujo mínimo del runtime.
+- Si un juego adicional requiere reglas especiales, bonus propietarios o mensajes distintos, habrá que extender el bridge para ese juego concreto.
+- `node:sqlite` sigue marcado como experimental en Node 22.13+, pero en este repo ya queda soportado sobre esa versión mínima.

@@ -116,6 +116,25 @@
         return value === 'true' || value === '1';
       }
 
+      function ensureSessionId(runtimeConfig) {
+        var existingSessionId = null;
+        try {
+          existingSessionId = window.sessionStorage.getItem('sessionId');
+        } catch (error) {}
+
+        var querySessionId = getQueryParam('sessionId', null);
+        var sessionId = querySessionId
+          || runtimeConfig.sessionId
+          || existingSessionId
+          || getQueryParam('token', runtimeConfig.token || 'demo-session');
+
+        try {
+          window.sessionStorage.setItem('sessionId', sessionId);
+        } catch (error) {}
+
+        return sessionId;
+      }
+
       function normalizeSocketConfig(rawHost, rawPort, sslHost, hasExplicitPortParam) {
         var requestedProtocol = sslHost ? 'wss://' : 'ws://';
         var hostInput = String(rawHost || '').trim();
@@ -309,6 +328,8 @@
 
       waitForRuntimeDependencies(function () {
         var runtimeConfig = window.__ACTION_MONEY_SLOT_CONFIG || {};
+        runtimeConfig.apiBase = getQueryParam('apiBase', runtimeConfig.apiBase || '/api');
+        var sessionId = ensureSessionId(runtimeConfig);
         var defaultSslHost = typeof runtimeConfig.sslHost === 'boolean'
           ? runtimeConfig.sslHost
           : window.location.protocol === 'https:';
@@ -339,6 +360,7 @@
         var hasAttemptedSocket = false;
 
         window.gameName = gameName;
+        runtimeConfig.sessionId = sessionId;
         console.info('[ActionMoneySlot] WebSocket endpoint:', wsEndpoint);
         showRuntimeValidation(
           'WebSocket normalizado: ' + wsEndpoint + (socketConfig.warnings.length ? ' — ' + socketConfig.warnings.join(' ') : ''),

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const { DEFAULT_API_BASE, createBackend, parsePathname } = require('./game-backend');
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = normalizePort(process.env.PORT, 8080);
@@ -54,6 +55,11 @@ function buildRuntimeConfig(env) {
     source.ACTION_MONEY_SLOT_TOKEN,
     source.TOKEN
   ]);
+  const apiBase = getFirstDefined([
+    source.ACTION_MONEY_SLOT_API_BASE,
+    source.API_BASE,
+    DEFAULT_API_BASE
+  ]);
   const sslHostValue = getFirstDefined([
     source.ACTION_MONEY_SLOT_SSL_HOST,
     source.SSL_HOST
@@ -63,7 +69,8 @@ function buildRuntimeConfig(env) {
     gameName,
     game: gameName,
     language,
-    currency
+    currency,
+    apiBase
   };
 
   if (tcpHost) {
@@ -79,6 +86,7 @@ function buildRuntimeConfig(env) {
   }
   if (token) {
     runtimeConfig.token = token;
+    runtimeConfig.sessionId = token;
   }
 
   return runtimeConfig;
@@ -139,8 +147,40 @@ function sendJson(res, statusCode, body, shouldSendBody) {
   res.end(shouldSendBody ? JSON.stringify(body) : undefined);
 }
 
-function sendRuntimeConfig(res, runtimeConfig, shouldSendBody) {
-  const body = `window.__ACTION_MONEY_SLOT_CONFIG = ${JSON.stringify(runtimeConfig, null, 2)};\n`;
+function inferSameOriginRuntimeConfig(req, runtimeConfig) {
+  const inferredConfig = { ...runtimeConfig };
+  const forwardedProtoHeader = Array.isArray(req.headers['x-forwarded-proto'])
+    ? req.headers['x-forwarded-proto'][0]
+    : req.headers['x-forwarded-proto'];
+  const forwardedProto = typeof forwardedProtoHeader === 'string'
+    ? forwardedProtoHeader.split(',')[0].trim().toLowerCase()
+    : '';
+  const hostHeader = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
+  const requestUrl = hostHeader ? `http://${hostHeader}` : null;
+  const parsedHost = requestUrl ? new URL(requestUrl) : null;
+
+  if (!inferredConfig.tcpHost && parsedHost) {
+    inferredConfig.tcpHost = parsedHost.hostname;
+  }
+
+  if (!inferredConfig.tcpPort) {
+    if (parsedHost && parsedHost.port) {
+      inferredConfig.tcpPort = parsedHost.port;
+    } else {
+      inferredConfig.tcpPort = forwardedProto === 'https' ? '443' : '80';
+    }
+  }
+
+  if (typeof inferredConfig.sslHost !== 'boolean') {
+    inferredConfig.sslHost = forwardedProto === 'https';
+  }
+
+  return inferredConfig;
+}
+
+function sendRuntimeConfig(req, res, runtimeConfig, shouldSendBody) {
+  const effectiveRuntimeConfig = inferSameOriginRuntimeConfig(req, runtimeConfig);
+  const body = `window.__ACTION_MONEY_SLOT_CONFIG = ${JSON.stringify(effectiveRuntimeConfig, null, 2)};\n`;
   res.writeHead(200, {
     'Cache-Control': 'no-store',
     'Content-Type': 'application/javascript; charset=utf-8'
@@ -223,10 +263,33 @@ function resolveRequestPath(cleanPath) {
 
 function createServer(options) {
   const runtimeConfig = options && options.runtimeConfig ? options.runtimeConfig : buildRuntimeConfig();
+  const backend = createBackend({
+    rootDir: ROOT,
+    apiBase: runtimeConfig.apiBase,
+    dbPath: options && options.backendOptions && options.backendOptions.dbPath
+      ? options.backendOptions.dbPath
+      : process.env.ACTION_MONEY_SLOT_DB_PATH,
+    defaults: {
+      balance: process.env.ACTION_MONEY_SLOT_START_BALANCE,
+      currency: runtimeConfig.currency,
+      language: runtimeConfig.language,
+      playerName: process.env.ACTION_MONEY_SLOT_PLAYER_NAME
+    }
+  });
 
-  return http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const method = req.method || 'GET';
     const shouldSendBody = method !== 'HEAD';
+    const pathname = parsePathname(req.url || '/');
+
+    if (pathname === runtimeConfig.apiBase || pathname.startsWith(`${runtimeConfig.apiBase}/`)) {
+      const handled = await backend.handleApiRequest(req, res, pathname, shouldSendBody);
+      if (!handled) {
+        sendJson(res, 404, { error: 'Not Found' }, shouldSendBody);
+      }
+      return;
+    }
+
     if (!['GET', 'HEAD'].includes(method)) {
       res.writeHead(405, {
         Allow: 'GET, HEAD',
@@ -251,13 +314,19 @@ function createServer(options) {
     if (requestPath === '/health' || requestPath === '/healthz') {
       sendJson(res, 200, {
         ok: true,
-        entrypoint: DEFAULT_ENTRYPOINT
+        entrypoint: DEFAULT_ENTRYPOINT,
+        apiBase: runtimeConfig.apiBase,
+        games: backend.games.map((game) => ({
+          gameIdentificationNumber: game.gameIdentificationNumber,
+          gameName: game.gameName,
+          gameType: game.gameType
+        }))
       }, shouldSendBody);
       return;
     }
 
     if (requestPath === '/runtime-config.js') {
-      sendRuntimeConfig(res, runtimeConfig, shouldSendBody);
+      sendRuntimeConfig(req, res, runtimeConfig, shouldSendBody);
       return;
     }
 
@@ -295,6 +364,71 @@ function createServer(options) {
       sendFile(resolvedPath.filePath, res, shouldSendBody);
     });
   });
+
+  const upgradeHandler = (req, socket, head) => {
+    backend.handleUpgrade(req, socket, head);
+  };
+  server.on('upgrade', upgradeHandler);
+
+  const originalClose = server.close.bind(server);
+  let isClosing = false;
+  let isClosed = false;
+  const closeCallbacks = [];
+  server.once('close', () => {
+    isClosed = true;
+  });
+
+  function createNotRunningError() {
+    const error = new Error('Server is not running.');
+    error.code = 'ERR_SERVER_NOT_RUNNING';
+    return error;
+  }
+
+  function flushCloseCallbacks(error) {
+    while (closeCallbacks.length) {
+      const callback = closeCallbacks.shift();
+      callback(error);
+    }
+  }
+
+  server.close = (callback) => {
+    if (isClosed) {
+      if (typeof callback === 'function') {
+        process.nextTick(() => callback(createNotRunningError()));
+      }
+      return server;
+    }
+    if (typeof callback === 'function') {
+      closeCallbacks.push(callback);
+    }
+    if (isClosing) {
+      return server;
+    }
+    isClosing = true;
+    server.off('upgrade', upgradeHandler);
+    if (!server.listening) {
+      backend.shutdown((backendError) => {
+        isClosed = true;
+        isClosing = false;
+        flushCloseCallbacks(backendError || createNotRunningError());
+      });
+      return server;
+    }
+    backend.shutdown((backendError) => {
+      originalClose((serverError) => {
+        const finalError = backendError || serverError || null;
+        if (finalError && finalError.code !== 'ERR_SERVER_NOT_RUNNING' && !isClosed) {
+          isClosing = false;
+        } else {
+          isClosed = true;
+        }
+        flushCloseCallbacks(finalError);
+      });
+    });
+    return server;
+  };
+
+  return server;
 }
 
 function startServer() {
@@ -321,6 +455,7 @@ module.exports = {
   buildRuntimeConfig,
   createServer,
   decodeRequestPath,
+  inferSameOriginRuntimeConfig,
   normalizeOptionalBoolean,
   normalizePort,
   resolveRequestPath,

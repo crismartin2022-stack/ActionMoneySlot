@@ -1,7 +1,9 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const { URL } = require('url');
+const { DatabaseSync } = require('node:sqlite');
 const { WebSocketServer } = require('ws');
 
 const RESPONSE_QNAMES = {
@@ -22,6 +24,7 @@ const DEFAULT_ENGINE_TYPE = 'ActionMoneySlot';
 const DEFAULT_GAME_IDENTIFICATION_NUMBER = 1;
 const DEFAULT_GAME_VERSION = '1.3.0';
 const DEFAULT_SYMBOL_COUNT = 11;
+const DEFAULT_API_BASE = '/api';
 const DEFAULT_PAYTABLE = {
   0: { coef: [10, 30, 100], multiplier: 1 },
   1: { coef: [10, 30, 100], multiplier: 1 },
@@ -106,6 +109,174 @@ function randomInt(state, maxExclusive) {
   return Math.floor(randomFloat(state) * maxExclusive);
 }
 
+function normalizeNumber(value, fallback) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function humanizeGameName(gameName) {
+  return String(gameName || '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim() || 'Game';
+}
+
+function normalizeStringArray(value, fallback) {
+  if (!Array.isArray(value) || !value.length) {
+    return clone(fallback);
+  }
+  return value.map((entry) => String(entry));
+}
+
+function normalizeDenominations(value) {
+  if (!Array.isArray(value) || !value.length) {
+    return clone(DEFAULT_DENOMINATIONS);
+  }
+  const normalized = value
+    .filter((entry) => Array.isArray(entry) && entry.length >= 1)
+    .map((entry) => entry.map((item) => normalizeNumber(item, item)));
+  return normalized.length ? normalized : clone(DEFAULT_DENOMINATIONS);
+}
+
+function loadGameConfig(configPath) {
+  const source = fs.readFileSync(configPath, 'utf8');
+  const sandbox = {
+    console: { log() {}, warn() {}, error() {} },
+    com: {
+      egt: {
+        baseslot: {},
+        cascadeslot: {}
+      }
+    },
+    window: {
+      com: {
+        egt: {
+          baseslot: {},
+          cascadeslot: {}
+        }
+      }
+    }
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(source, sandbox, { filename: configPath });
+
+  const configCtor = sandbox.com?.egt?.baseslot?.Config
+    || sandbox.window?.com?.egt?.baseslot?.Config
+    || sandbox.Config;
+  const buildTime = sandbox.com?.egt?.cascadeslot?.buildTime
+    || sandbox.window?.com?.egt?.cascadeslot?.buildTime
+    || null;
+
+  if (typeof configCtor !== 'function') {
+    return { buildTime: null, settings: {} };
+  }
+
+  return {
+    buildTime,
+    settings: clone(new configCtor())
+  };
+}
+
+function createGameSettings({ engineType, gameType, staticSettings, buildTime }) {
+  const linesCount = Array.isArray(staticSettings.linesCount) && staticSettings.linesCount.length
+    ? staticSettings.linesCount.map((value) => normalizeNumber(value, value))
+    : [1, 5, 10, 15, 20];
+  const baseLineCount = linesCount.includes(5) ? 5 : linesCount[0];
+  const normalizedStaticSettings = staticSettings || {};
+
+  return {
+    ...clone(normalizedStaticSettings),
+    paytableCoef: normalizedStaticSettings.paytableCoef || clone(DEFAULT_PAYTABLE),
+    rtp: String(normalizedStaticSettings.rtp || '96.45'),
+    bets: normalizeStringArray(normalizedStaticSettings.bets, DEFAULT_BETS).map((value) => normalizeNumber(value, value)),
+    jackpotMinBet: normalizeNumber(normalizedStaticSettings.jackpotMinBet, 500),
+    jackpot: Boolean(normalizedStaticSettings.jackpot),
+    lines: Array.isArray(normalizedStaticSettings.lines) && normalizedStaticSettings.lines.length
+      ? normalizedStaticSettings.lines.map((value) => normalizeNumber(value, value))
+      : [baseLineCount],
+    lineGame: normalizedStaticSettings.lineGame !== false,
+    linesCount,
+    mainFakeReels: Array.isArray(normalizedStaticSettings.mainFakeReels) && normalizedStaticSettings.mainFakeReels.length
+      ? clone(normalizedStaticSettings.mainFakeReels)
+      : clone(DEFAULT_FAKE_REELS),
+    jackpotMaxBet: normalizeNumber(normalizedStaticSettings.jackpotMaxBet, 1000),
+    denominations: normalizeDenominations(normalizedStaticSettings.denominations),
+    autoplayLimit: Array.isArray(normalizedStaticSettings.autoplayLimit) && normalizedStaticSettings.autoplayLimit.length
+      ? normalizedStaticSettings.autoplayLimit.map((value) => normalizeNumber(value, value))
+      : [0, 10, 25, 50],
+    sendTotalsInfo: Boolean(normalizedStaticSettings.sendTotalsInfo),
+    minimumSpinTime: normalizeNumber(normalizedStaticSettings.minimumSpinTime, 0),
+    gameVersion: String(
+      normalizedStaticSettings.gameVersion
+      || `${engineType} v: ${buildTime || DEFAULT_GAME_VERSION}.r`
+    ),
+    gameType,
+    engineType
+  };
+}
+
+function createIdleCurrentState(settings) {
+  const defaultDenomination = settings.denominations[0][0];
+  const defaultLines = settings.lineGame
+    ? (settings.linesCount.includes(5) ? 5 : settings.linesCount[0])
+    : settings.lines[0];
+
+  return {
+    gamblesUsed: 0,
+    previousGambles: [],
+    bet: defaultDenomination,
+    numberOfLines: defaultLines,
+    denomination: defaultDenomination,
+    state: 'idle',
+    winAmount: 0,
+    reels: clone(DEFAULT_IDLE_REELS),
+    lines: [],
+    combos: [],
+    scatters: [],
+    expand: [],
+    gambles: 0,
+    jackpot: false,
+    freespins: 0,
+    freespinsUsed: 0,
+    freespinScatters: [],
+    freespinsPerLine: null,
+    respin: false,
+    holdReels: null
+  };
+}
+
+function buildGameDefinition({ engineType, gameType, gameIdentificationNumber, gameName, staticSettings, buildTime }) {
+  const displayName = humanizeGameName(gameName);
+  const settings = createGameSettings({ engineType, gameType, staticSettings, buildTime });
+  const initialState = createIdleCurrentState(settings);
+  return {
+    engineType,
+    gameType,
+    gameName,
+    displayName,
+    gameIdentificationNumber,
+    featured: true,
+    recovery: 'norecovery',
+    mlmJackpot: false,
+    groups: [{ name: 'slots' }],
+    bonusSpins: { remainingBonusSpins: 0, statusCode: 'success' },
+    buildTime,
+    staticConfig: staticSettings,
+    iData: {
+      gameName,
+      gameType,
+      engineType,
+      playerName: DEFAULT_PLAYER_NAME,
+      lastBet: initialState.bet,
+      lastDenomination: initialState.denomination,
+      gameNumber: 0
+    },
+    settings,
+    initialState,
+    jackpotState: clone(DEFAULT_JACKPOT_STATE)
+  };
+}
+
 function discoverGames(rootDir) {
   const gamesRoot = path.join(rootDir, 'ActionMoneyEGT', 'html5', 'games');
   const games = [];
@@ -131,11 +302,14 @@ function discoverGames(rootDir) {
       if (!fs.existsSync(configPath)) {
         continue;
       }
+      const loadedConfig = loadGameConfig(configPath);
       games.push(buildGameDefinition({
         engineType,
         gameType,
         gameIdentificationNumber: gameId,
-        gameName: engineType
+        gameName: engineType,
+        staticSettings: loadedConfig.settings,
+        buildTime: loadedConfig.buildTime
       }));
       gameId += 1;
     }
@@ -146,114 +320,198 @@ function discoverGames(rootDir) {
       engineType: DEFAULT_ENGINE_TYPE,
       gameType: DEFAULT_GAME_TYPE,
       gameIdentificationNumber: DEFAULT_GAME_IDENTIFICATION_NUMBER,
-      gameName: DEFAULT_GAME_NAME
+      gameName: DEFAULT_GAME_NAME,
+      staticSettings: {},
+      buildTime: DEFAULT_GAME_VERSION
     }));
   }
 
   return games;
 }
 
-function buildGameDefinition({ engineType, gameType, gameIdentificationNumber, gameName }) {
-  const displayName = humanizeGameName(gameName);
-  const settings = createGameSettings({ engineType, gameType });
-  return {
-    engineType,
-    gameType,
-    gameName,
-    displayName,
-    gameIdentificationNumber,
-    featured: true,
-    recovery: 'norecovery',
-    mlmJackpot: false,
-    groups: [{ name: 'slots' }],
-    bonusSpins: { remainingBonusSpins: 0, statusCode: 'success' },
-    iData: {
-      gameName,
-      gameType,
-      engineType,
-      playerName: DEFAULT_PLAYER_NAME,
-      lastBet: settings.denominations[0][0],
-      lastDenomination: settings.denominations[0][0],
-      gameNumber: 0
-    },
-    settings,
-    initialState: createIdleCurrentState(settings),
-    jackpotState: clone(DEFAULT_JACKPOT_STATE)
-  };
+function resolveGameSelection(games, input = {}) {
+  if (input.gameIdentificationNumber !== undefined && input.gameIdentificationNumber !== null) {
+    const byId = games.find((game) => game.gameIdentificationNumber === Number(input.gameIdentificationNumber));
+    if (byId) {
+      return byId;
+    }
+  }
+
+  if (input.gameType) {
+    const gameType = String(input.gameType).toLowerCase();
+    const byType = games.find((game) => game.gameType.toLowerCase() === gameType);
+    if (byType) {
+      return byType;
+    }
+  }
+
+  if (input.gameName) {
+    const gameName = String(input.gameName).toLowerCase();
+    const byName = games.find((game) => game.gameName.toLowerCase() === gameName);
+    if (byName) {
+      return byName;
+    }
+  }
+
+  return games[0] || null;
 }
 
-function humanizeGameName(gameName) {
-  return String(gameName || '')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/[_-]+/g, ' ')
-    .trim() || 'Game';
-}
-
-function createGameSettings({ engineType, gameType }) {
-  return {
-    paytableCoef: clone(DEFAULT_PAYTABLE),
-    rtp: '96.45',
-    bets: clone(DEFAULT_BETS),
-    jackpotMinBet: 500,
-    jackpot: false,
-    lines: [5],
-    lineGame: true,
-    linesCount: [1, 5, 10, 15, 20],
-    mainFakeReels: clone(DEFAULT_FAKE_REELS),
-    jackpotMaxBet: 1000,
-    denominations: clone(DEFAULT_DENOMINATIONS),
-    autoplayLimit: [0, 10, 25, 50],
-    sendTotalsInfo: false,
-    minimumSpinTime: 0,
-    gameVersion: `${gameNameForSettings(engineType)} v: ${DEFAULT_GAME_VERSION}.r`,
-    gameType,
-    engineType
-  };
-}
-
-function gameNameForSettings(engineType) {
-  return String(engineType || DEFAULT_GAME_NAME);
-}
-
-function createIdleCurrentState(settings) {
-  return {
-    gamblesUsed: 0,
-    previousGambles: [],
-    bet: settings.denominations[0][0],
-    numberOfLines: settings.lines[0],
-    denomination: settings.denominations[0][0],
-    state: 'idle',
-    winAmount: 0,
-    reels: clone(DEFAULT_IDLE_REELS),
-    lines: [],
-    combos: [],
-    scatters: [],
-    expand: [],
-    gambles: 0,
-    jackpot: false,
-    freespins: 0,
-    freespinsUsed: 0,
-    freespinScatters: [],
-    freespinsPerLine: null,
-    respin: false,
-    holdReels: null
-  };
+function serializeRngValue(state) {
+  return String((state && state.value) || createSeed());
 }
 
 class SessionStore {
-  constructor(games, defaults = {}) {
+  constructor(games, options = {}) {
     this.games = games;
     this.sessions = new Map();
     this.defaults = {
-      balance: normalizeNumber(defaults.balance, DEFAULT_BALANCE),
-      currency: defaults.currency || DEFAULT_CURRENCY,
-      language: defaults.language || DEFAULT_LANGUAGE,
-      playerName: defaults.playerName || DEFAULT_PLAYER_NAME
+      balance: normalizeNumber(options.balance, DEFAULT_BALANCE),
+      currency: options.currency || DEFAULT_CURRENCY,
+      language: options.language || DEFAULT_LANGUAGE,
+      playerName: options.playerName || DEFAULT_PLAYER_NAME
+    };
+    this.dbPath = options.dbPath || path.join(options.rootDir, 'data', 'action-money-slot.sqlite');
+    fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
+    this.db = new DatabaseSync(this.dbPath);
+    this.initSchema();
+    this.prepareStatements();
+    this.loadSessions();
+    this.ensureDemoSession();
+  }
+
+  initSchema() {
+    this.db.exec(`
+      PRAGMA foreign_keys = ON;
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        session_key TEXT NOT NULL,
+        player_name TEXT NOT NULL,
+        balance REAL NOT NULL,
+        currency TEXT NOT NULL,
+        language TEXT NOT NULL,
+        selected_game_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS session_games (
+        session_id TEXT NOT NULL,
+        game_identification_number INTEGER NOT NULL,
+        game_number INTEGER NOT NULL,
+        state_json TEXT NOT NULL,
+        jackpot_state_json TEXT NOT NULL,
+        rng_value TEXT NOT NULL,
+        last_updated_at TEXT NOT NULL,
+        PRIMARY KEY (session_id, game_identification_number),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+    `);
+  }
+
+  prepareStatements() {
+    this.statements = {
+      selectSessions: this.db.prepare('SELECT * FROM sessions ORDER BY created_at ASC'),
+      selectSessionGames: this.db.prepare('SELECT * FROM session_games ORDER BY session_id ASC, game_identification_number ASC'),
+      upsertSession: this.db.prepare(`
+        INSERT INTO sessions (id, session_key, player_name, balance, currency, language, selected_game_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          session_key = excluded.session_key,
+          player_name = excluded.player_name,
+          balance = excluded.balance,
+          currency = excluded.currency,
+          language = excluded.language,
+          selected_game_id = excluded.selected_game_id,
+          created_at = excluded.created_at,
+          updated_at = excluded.updated_at
+      `),
+      upsertSessionGame: this.db.prepare(`
+        INSERT INTO session_games (session_id, game_identification_number, game_number, state_json, jackpot_state_json, rng_value, last_updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, game_identification_number) DO UPDATE SET
+          game_number = excluded.game_number,
+          state_json = excluded.state_json,
+          jackpot_state_json = excluded.jackpot_state_json,
+          rng_value = excluded.rng_value,
+          last_updated_at = excluded.last_updated_at
+      `),
+      deleteSession: this.db.prepare('DELETE FROM sessions WHERE id = ?')
     };
   }
 
+  loadSessions() {
+    this.sessions.clear();
+    const sessionRows = this.statements.selectSessions.all();
+    const sessionGameRows = this.statements.selectSessionGames.all();
+    const gameRowsBySession = new Map();
+
+    for (const row of sessionGameRows) {
+      if (!gameRowsBySession.has(row.session_id)) {
+        gameRowsBySession.set(row.session_id, []);
+      }
+      gameRowsBySession.get(row.session_id).push(row);
+    }
+
+    for (const row of sessionRows) {
+      const selectedGame = this.findGameById(row.selected_game_id) || this.games[0];
+      const session = {
+        id: row.id,
+        sessionKey: row.session_key,
+        playerName: row.player_name,
+        balance: Number(row.balance),
+        currency: row.currency,
+        language: row.language,
+        selectedGameId: selectedGame ? selectedGame.gameIdentificationNumber : DEFAULT_GAME_IDENTIFICATION_NUMBER,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        games: {}
+      };
+
+      const perGameRows = gameRowsBySession.get(row.id) || [];
+      for (const game of this.games) {
+        const stored = perGameRows.find((entry) => entry.game_identification_number === game.gameIdentificationNumber);
+        if (stored) {
+          session.games[game.gameIdentificationNumber] = {
+            gameNumber: Number(stored.game_number),
+            state: JSON.parse(stored.state_json),
+            jackpotState: JSON.parse(stored.jackpot_state_json),
+            lastUpdatedAt: stored.last_updated_at,
+            rng: { value: BigInt(stored.rng_value) }
+          };
+        } else {
+          session.games[game.gameIdentificationNumber] = this.createDefaultSessionGame(game, row.updated_at);
+        }
+      }
+
+      this.sessions.set(session.id, session);
+      this.persistSession(session);
+    }
+  }
+
+  createDefaultSessionGame(game, timestamp) {
+    return {
+      gameNumber: 0,
+      state: clone(game.initialState),
+      jackpotState: clone(game.jackpotState),
+      lastUpdatedAt: timestamp,
+      rng: { value: createSeed() }
+    };
+  }
+
+  ensureDemoSession() {
+    if (!this.getSession('demo-session')) {
+      this.createSession({
+        id: 'demo-session',
+        sessionKey: 'LOCAL:demo-session',
+        playerName: 'demo-player'
+      });
+    }
+  }
+
   createSession(input = {}) {
+    const selectedGame = resolveGameSelection(this.games, input);
     const id = String(input.id || crypto.randomUUID());
+    const now = new Date().toISOString();
     const session = {
       id,
       sessionKey: String(input.sessionKey || `LOCAL:${id}`),
@@ -261,23 +519,51 @@ class SessionStore {
       balance: normalizeNumber(input.balance, this.defaults.balance),
       currency: String(input.currency || this.defaults.currency),
       language: String(input.language || this.defaults.language),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      selectedGameId: selectedGame ? selectedGame.gameIdentificationNumber : DEFAULT_GAME_IDENTIFICATION_NUMBER,
+      createdAt: now,
+      updatedAt: now,
       games: {}
     };
 
     for (const game of this.games) {
-      session.games[game.gameIdentificationNumber] = {
-        gameNumber: 0,
-        state: clone(game.initialState),
-        jackpotState: clone(game.jackpotState),
-        lastUpdatedAt: session.updatedAt,
-        rng: { value: createSeed() }
-      };
+      session.games[game.gameIdentificationNumber] = this.createDefaultSessionGame(game, now);
     }
 
     this.sessions.set(id, session);
+    this.persistSession(session);
     return session;
+  }
+
+  persistSession(session) {
+    this.statements.upsertSession.run(
+      session.id,
+      session.sessionKey,
+      session.playerName,
+      session.balance,
+      session.currency,
+      session.language,
+      session.selectedGameId,
+      session.createdAt,
+      session.updatedAt
+    );
+
+    for (const game of this.games) {
+      const state = session.games[game.gameIdentificationNumber] || this.createDefaultSessionGame(game, session.updatedAt);
+      session.games[game.gameIdentificationNumber] = state;
+      this.statements.upsertSessionGame.run(
+        session.id,
+        game.gameIdentificationNumber,
+        state.gameNumber,
+        JSON.stringify(state.state),
+        JSON.stringify(state.jackpotState),
+        serializeRngValue(state.rng),
+        state.lastUpdatedAt
+      );
+    }
+  }
+
+  listSessions() {
+    return Array.from(this.sessions.values());
   }
 
   getSession(id) {
@@ -285,17 +571,15 @@ class SessionStore {
   }
 
   ensureSession(id, input = {}) {
-    if (id) {
-      const existing = this.getSession(id);
-      if (existing) {
-        return existing;
-      }
-      if (String(id) !== 'demo-session') {
-        return null;
-      }
-      return this.createSession({ ...input, id });
+    const sessionId = String(id || '');
+    const existing = sessionId ? this.getSession(sessionId) : null;
+    if (existing) {
+      return existing;
     }
-    return this.createSession(input);
+    if (!sessionId || sessionId !== 'demo-session') {
+      return null;
+    }
+    return this.createSession({ ...input, id: sessionId, sessionKey: `LOCAL:${sessionId}` });
   }
 
   updateBalance(id, nextBalance) {
@@ -305,13 +589,38 @@ class SessionStore {
     }
     session.balance = normalizeNumber(nextBalance, session.balance);
     session.updatedAt = new Date().toISOString();
+    this.persistSession(session);
     return session;
   }
-}
 
-function normalizeNumber(value, fallback) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : fallback;
+  setSelectedGame(id, gameIdentificationNumber) {
+    const session = this.getSession(id);
+    if (!session) {
+      return null;
+    }
+    session.selectedGameId = Number(gameIdentificationNumber);
+    session.updatedAt = new Date().toISOString();
+    this.persistSession(session);
+    return session;
+  }
+
+  saveSessionGame(session, gameIdentificationNumber) {
+    const state = session.games[gameIdentificationNumber];
+    if (!state) {
+      return;
+    }
+    session.updatedAt = new Date().toISOString();
+    state.lastUpdatedAt = session.updatedAt;
+    this.persistSession(session);
+  }
+
+  close() {
+    this.db.close();
+  }
+
+  findGameById(gameIdentificationNumber) {
+    return this.games.find((game) => game.gameIdentificationNumber === Number(gameIdentificationNumber)) || null;
+  }
 }
 
 function readJsonBody(req) {
@@ -340,6 +649,7 @@ function readJsonBody(req) {
       }
       chunks.push(chunk);
     });
+
     req.on('end', () => {
       if (settled) {
         return;
@@ -354,6 +664,7 @@ function readJsonBody(req) {
         finish(reject, new Error('Invalid JSON body.'));
       }
     });
+
     req.on('error', (error) => finish(reject, error));
   });
 }
@@ -373,6 +684,19 @@ function parseIncomingFrame(raw) {
 
 function toResponseMessageId(requestMessageId) {
   return typeof requestMessageId === 'string' && requestMessageId ? requestMessageId : `r-r_${crypto.randomUUID()}`;
+}
+
+function buildGameCatalogEntry(game, session, apiBase) {
+  return {
+    gameIdentificationNumber: game.gameIdentificationNumber,
+    engineType: game.engineType,
+    gameType: game.gameType,
+    gameName: game.gameName,
+    displayName: game.displayName,
+    buildTime: game.buildTime,
+    settings: clone(game.settings),
+    launchUrl: buildLaunchUrl(session, game, apiBase)
+  };
 }
 
 function buildLoginResponse(request, session, games) {
@@ -529,25 +853,27 @@ function buildFailureResponse(request, reason) {
   };
 }
 
-function generateRandomReels(state) {
+function generateRandomReels(state, game) {
   const reels = [];
-  for (let index = 0; index < DEFAULT_IDLE_REELS.length; index += 1) {
-    reels.push(randomInt(state, DEFAULT_SYMBOL_COUNT));
+  const maxSymbolCount = normalizeNumber(game.settings.numImages, DEFAULT_SYMBOL_COUNT);
+  const reelLength = normalizeNumber(game.settings.numReels, 5) * (normalizeNumber(game.settings.numReelCards, 3) + 2);
+  for (let index = 0; index < reelLength; index += 1) {
+    reels.push(randomInt(state, maxSymbolCount));
   }
   return reels;
 }
 
-function createWinningLine(reels, winAmount) {
+function createWinningLine(reels, winAmount, lineIndex = 0) {
   const card = Number(reels[1] || 0);
   return [{
-    line: 0,
+    line: lineIndex,
     cells: [0, 0, 1, 0, 2, 0, 3, 0, 4, 0],
     winAmount,
     card
   }];
 }
 
-function validateBetPayload(game, denomination, numberOfLines, betAmount) {
+function validateBetPayload(game, denomination, numberOfLines, betPerLine) {
   const supportedDenominations = game.settings.denominations.map((entry) => Number(entry[0]));
   if (!supportedDenominations.includes(denomination)) {
     return `Unsupported denomination: ${denomination}`;
@@ -560,19 +886,19 @@ function validateBetPayload(game, denomination, numberOfLines, betAmount) {
     return `Unsupported line count: ${numberOfLines}`;
   }
 
-  if (betAmount < denomination || betAmount % denomination !== 0) {
-    return `Unsupported bet amount: ${betAmount}`;
+  if (betPerLine < denomination || betPerLine % denomination !== 0) {
+    return `Unsupported bet amount: ${betPerLine}`;
   }
 
-  const betUnits = betAmount / denomination;
+  const betUnits = betPerLine / denomination;
   if (!game.settings.bets.map((value) => Number(value)).includes(betUnits)) {
-    return `Unsupported bet amount: ${betAmount}`;
+    return `Unsupported bet amount: ${betPerLine}`;
   }
 
   return null;
 }
 
-function handleSpin(request, session, game) {
+function handleSpin(request, session, game, sessionStore) {
   const sessionGame = session.games[game.gameIdentificationNumber];
   const betPayload = request.bet || {};
   const previousState = sessionGame.state;
@@ -581,19 +907,19 @@ function handleSpin(request, session, game) {
     betPayload.lines !== undefined ? betPayload.lines : betPayload.numberOfLines,
     previousState.numberOfLines || game.settings.lines[0]
   );
-  const perLineBet = normalizeNumber(betPayload.bet, previousState.bet || denomination);
-  const validationError = validateBetPayload(game, denomination, numberOfLines, perLineBet);
+  const betPerLine = normalizeNumber(betPayload.bet, previousState.bet || denomination);
+  const validationError = validateBetPayload(game, denomination, numberOfLines, betPerLine);
   if (validationError) {
     return buildFailureResponse(request, validationError);
   }
-  const totalBet = perLineBet * Math.max(1, numberOfLines);
 
+  const totalBet = betPerLine * Math.max(1, numberOfLines);
   if (session.balance < totalBet) {
     return buildInsufficientFundsResponse(request, session, game);
   }
 
   session.balance -= totalBet;
-  const reels = generateRandomReels(sessionGame.rng);
+  const reels = generateRandomReels(sessionGame.rng, game);
   const shouldWin = randomFloat(sessionGame.rng) >= 0.68;
   const winMultiplier = shouldWin ? 1 + randomInt(sessionGame.rng, 6) : 0;
   const winAmount = shouldWin ? totalBet * winMultiplier : 0;
@@ -604,7 +930,7 @@ function handleSpin(request, session, game) {
   const nextState = {
     ...clone(previousState),
     state: 'idle',
-    bet: perLineBet,
+    bet: betPerLine,
     denomination,
     numberOfLines,
     winAmount,
@@ -626,13 +952,11 @@ function handleSpin(request, session, game) {
   };
 
   sessionGame.state = nextState;
-  session.updatedAt = new Date().toISOString();
-  sessionGame.lastUpdatedAt = session.updatedAt;
-
+  sessionStore.saveSessionGame(session, game.gameIdentificationNumber);
   return buildBetResponse(request, session, game, nextState, winAmount, 'bet');
 }
 
-function handleCollect(request, session, game) {
+function handleCollect(request, session, game, sessionStore) {
   const sessionGame = session.games[game.gameIdentificationNumber];
   sessionGame.state = {
     ...clone(sessionGame.state),
@@ -642,19 +966,17 @@ function handleCollect(request, session, game) {
     gambles: 0,
     gamblesUsed: 0
   };
-  session.updatedAt = new Date().toISOString();
-  sessionGame.lastUpdatedAt = session.updatedAt;
+  sessionStore.saveSessionGame(session, game.gameIdentificationNumber);
   return buildBetResponse(request, session, game, sessionGame.state, 0, 'collect');
 }
 
-function handleNoopBet(request, session, game, gameCommand) {
-  const sessionGame = session.games[game.gameIdentificationNumber];
-  session.updatedAt = new Date().toISOString();
-  sessionGame.lastUpdatedAt = session.updatedAt;
-  return buildBetResponse(request, session, game, sessionGame.state, 0, gameCommand);
+function handleNoopBet(request, session, game, sessionStore, gameCommand) {
+  sessionStore.saveSessionGame(session, game.gameIdentificationNumber);
+  return buildBetResponse(request, session, game, session.games[game.gameIdentificationNumber].state, 0, gameCommand);
 }
 
-function sanitizeSessionForApi(session) {
+function sanitizeSessionForApi(session, games) {
+  const selectedGame = resolveGameSelection(games, { gameIdentificationNumber: session.selectedGameId });
   return {
     id: session.id,
     sessionKey: session.sessionKey,
@@ -662,15 +984,21 @@ function sanitizeSessionForApi(session) {
     balance: session.balance,
     currency: session.currency,
     language: session.language,
+    selectedGameId: session.selectedGameId,
+    selectedGame: selectedGame ? {
+      gameIdentificationNumber: selectedGame.gameIdentificationNumber,
+      gameName: selectedGame.gameName,
+      gameType: selectedGame.gameType,
+      displayName: selectedGame.displayName
+    } : null,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt
   };
 }
 
-function buildLaunchUrl(session, gameName) {
-  const encodedGame = encodeURIComponent(gameName || DEFAULT_GAME_NAME);
-  const encodedSessionId = encodeURIComponent(session.id);
-  return `/ActionMoneyEGT/html5/index.html?game=${encodedGame}&sessionId=${encodedSessionId}&apiBase=${encodeURIComponent('/api')}`;
+function buildLaunchUrl(session, game, apiBase = DEFAULT_API_BASE) {
+  const targetGame = game || { gameName: DEFAULT_GAME_NAME, gameType: DEFAULT_GAME_TYPE, gameIdentificationNumber: DEFAULT_GAME_IDENTIFICATION_NUMBER };
+  return `/ActionMoneyEGT/html5/index.html?game=${encodeURIComponent(targetGame.gameName)}&gameType=${encodeURIComponent(targetGame.gameType)}&gameIdentificationNumber=${encodeURIComponent(targetGame.gameIdentificationNumber)}&sessionId=${encodeURIComponent(session.id)}&apiBase=${encodeURIComponent(apiBase)}`;
 }
 
 function extractSessionId(request) {
@@ -693,15 +1021,21 @@ function sendApiJson(res, statusCode, body, shouldSendBody) {
 }
 
 function findGameById(games, gameIdentificationNumber) {
-  const numericId = Number(gameIdentificationNumber);
-  return games.find((game) => game.gameIdentificationNumber === numericId) || null;
+  return games.find((game) => game.gameIdentificationNumber === Number(gameIdentificationNumber)) || null;
 }
 
 function createBackend(options) {
   const rootDir = options.rootDir;
+  const apiBase = options.apiBase || DEFAULT_API_BASE;
   const games = discoverGames(rootDir);
-  const sessionStore = new SessionStore(games, options.defaults);
-  sessionStore.ensureSession('demo-session');
+  const sessionStore = new SessionStore(games, {
+    rootDir,
+    dbPath: options.dbPath,
+    balance: options.defaults && options.defaults.balance,
+    currency: options.defaults && options.defaults.currency,
+    language: options.defaults && options.defaults.language,
+    playerName: options.defaults && options.defaults.playerName
+  });
   const sockets = new Set();
   const webSocketServer = new WebSocketServer({ noServer: true });
 
@@ -734,16 +1068,17 @@ function createBackend(options) {
         writeJsonFrame(ws, buildFailureResponse(request, `Unknown session: ${sessionId}`));
         return;
       }
+
       const requestedGameId = request.gameIdentificationNumber;
       const game = requestedGameId === undefined || requestedGameId === null
-        ? games[0]
+        ? resolveGameSelection(games, { gameIdentificationNumber: session.selectedGameId }) || games[0]
         : findGameById(games, requestedGameId);
       if (!game) {
         writeJsonFrame(ws, buildFailureResponse(request, `Unknown gameIdentificationNumber: ${requestedGameId}`));
         return;
       }
-      let response;
 
+      let response;
       switch (request.command) {
         case 'login':
           response = buildLoginResponse(request, session, games);
@@ -763,23 +1098,16 @@ function createBackend(options) {
         case 'bet': {
           const gameCommand = request.bet && request.bet.gameCommand ? request.bet.gameCommand : 'bet';
           if (gameCommand === 'bet' || gameCommand === 'setResult') {
-            response = handleSpin(request, session, game);
+            response = handleSpin(request, session, game, sessionStore);
           } else if (gameCommand === 'collect') {
-            response = handleCollect(request, session, game);
+            response = handleCollect(request, session, game, sessionStore);
           } else {
-            response = handleNoopBet(request, session, game, gameCommand);
+            response = handleNoopBet(request, session, game, sessionStore, gameCommand);
           }
           break;
         }
         default:
-          response = {
-            messageId: toResponseMessageId(request.messageId),
-            command: request.command || 'event',
-            qName: RESPONSE_QNAMES.base,
-            eventTimestamp: Date.now(),
-            msg: 'failure',
-            reason: `Unsupported command: ${request.command || 'unknown'}`
-          };
+          response = buildFailureResponse(request, `Unsupported command: ${request.command || 'unknown'}`);
       }
 
       writeJsonFrame(ws, response);
@@ -798,33 +1126,45 @@ function createBackend(options) {
     games,
     sessionStore,
     async handleApiRequest(req, res, pathname, shouldSendBody) {
-      if (pathname === '/api/games') {
+      if (pathname === `${apiBase}/games`) {
         if (!['GET', 'HEAD'].includes(req.method || 'GET')) {
           res.setHeader('Allow', 'GET, HEAD');
           sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
           return true;
         }
+        const demoSession = sessionStore.ensureSession('demo-session');
         sendApiJson(res, 200, {
-          games: games.map((game) => ({
-            gameIdentificationNumber: game.gameIdentificationNumber,
-            engineType: game.engineType,
-            gameType: game.gameType,
-            gameName: game.gameName,
-            displayName: game.displayName,
-            launchUrl: buildLaunchUrl(sessionStore.ensureSession('demo-session'), game.gameName)
-          }))
+          games: games.map((game) => buildGameCatalogEntry(game, demoSession, apiBase))
         }, shouldSendBody);
         return true;
       }
 
-      if (pathname === '/api/sessions') {
+      const gameMatch = pathname.match(new RegExp(`^${apiBase.replace('/', '\\/')}\\/games\\/(\\d+)$`));
+      if (gameMatch) {
+        if (!['GET', 'HEAD'].includes(req.method || 'GET')) {
+          res.setHeader('Allow', 'GET, HEAD');
+          sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
+          return true;
+        }
+        const game = findGameById(games, gameMatch[1]);
+        if (!game) {
+          sendApiJson(res, 404, { error: 'Game not found.' }, shouldSendBody);
+          return true;
+        }
+        const demoSession = sessionStore.ensureSession('demo-session');
+        sendApiJson(res, 200, { game: buildGameCatalogEntry(game, demoSession, apiBase) }, shouldSendBody);
+        return true;
+      }
+
+      if (pathname === `${apiBase}/sessions`) {
         if (req.method === 'POST') {
           try {
             const payload = await readJsonBody(req);
-            const session = sessionStore.createSession(payload);
+            const selectedGame = resolveGameSelection(games, payload);
+            const session = sessionStore.createSession({ ...payload, gameIdentificationNumber: selectedGame && selectedGame.gameIdentificationNumber });
             sendApiJson(res, 201, {
-              session: sanitizeSessionForApi(session),
-              launchUrl: buildLaunchUrl(session, payload.gameName || games[0].gameName),
+              session: sanitizeSessionForApi(session, games),
+              launchUrl: buildLaunchUrl(session, selectedGame, apiBase),
               games: games.map((game) => ({
                 gameIdentificationNumber: game.gameIdentificationNumber,
                 gameName: game.gameName,
@@ -840,7 +1180,7 @@ function createBackend(options) {
 
         if (['GET', 'HEAD'].includes(req.method || 'GET')) {
           sendApiJson(res, 200, {
-            sessions: Array.from(sessionStore.sessions.values()).map((session) => sanitizeSessionForApi(session))
+            sessions: sessionStore.listSessions().map((session) => sanitizeSessionForApi(session, games))
           }, shouldSendBody);
           return true;
         }
@@ -850,7 +1190,44 @@ function createBackend(options) {
         return true;
       }
 
-      const balanceMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/balance$/);
+      const selectGameMatch = pathname.match(new RegExp(`^${apiBase.replace('/', '\\/')}\\/sessions\\/([^/]+)\\/select-game$`));
+      if (selectGameMatch) {
+        let sessionId;
+        try {
+          sessionId = decodeURIComponent(selectGameMatch[1]);
+        } catch (error) {
+          sendApiJson(res, 400, { error: 'Invalid session id.' }, shouldSendBody);
+          return true;
+        }
+        const session = sessionStore.getSession(sessionId);
+        if (!session) {
+          sendApiJson(res, 404, { error: 'Session not found.' }, shouldSendBody);
+          return true;
+        }
+        if (req.method !== 'POST') {
+          res.setHeader('Allow', 'POST');
+          sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
+          return true;
+        }
+        try {
+          const payload = await readJsonBody(req);
+          const selectedGame = resolveGameSelection(games, payload);
+          if (!selectedGame) {
+            sendApiJson(res, 400, { error: 'Game selection is invalid.' }, shouldSendBody);
+            return true;
+          }
+          const updatedSession = sessionStore.setSelectedGame(sessionId, selectedGame.gameIdentificationNumber);
+          sendApiJson(res, 200, {
+            session: sanitizeSessionForApi(updatedSession, games),
+            launchUrl: buildLaunchUrl(updatedSession, selectedGame, apiBase)
+          }, shouldSendBody);
+        } catch (error) {
+          sendApiJson(res, 400, { error: error.message }, shouldSendBody);
+        }
+        return true;
+      }
+
+      const balanceMatch = pathname.match(new RegExp(`^${apiBase.replace('/', '\\/')}\\/sessions\\/([^/]+)\\/balance$`));
       if (balanceMatch) {
         let sessionId;
         try {
@@ -876,14 +1253,14 @@ function createBackend(options) {
             ? payload.balance
             : session.balance + normalizeNumber(payload.amount, 0);
           const updated = sessionStore.updateBalance(sessionId, nextBalance);
-          sendApiJson(res, 200, { session: sanitizeSessionForApi(updated) }, shouldSendBody);
+          sendApiJson(res, 200, { session: sanitizeSessionForApi(updated, games) }, shouldSendBody);
         } catch (error) {
           sendApiJson(res, 400, { error: error.message }, shouldSendBody);
         }
         return true;
       }
 
-      const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
+      const sessionMatch = pathname.match(new RegExp(`^${apiBase.replace('/', '\\/')}\\/sessions\\/([^/]+)$`));
       if (sessionMatch) {
         let sessionId;
         try {
@@ -903,9 +1280,10 @@ function createBackend(options) {
           return true;
         }
 
+        const selectedGame = resolveGameSelection(games, { gameIdentificationNumber: session.selectedGameId }) || games[0];
         sendApiJson(res, 200, {
-          session: sanitizeSessionForApi(session),
-          launchUrl: buildLaunchUrl(session, games[0].gameName)
+          session: sanitizeSessionForApi(session, games),
+          launchUrl: buildLaunchUrl(session, selectedGame, apiBase)
         }, shouldSendBody);
         return true;
       }
@@ -935,12 +1313,15 @@ function createBackend(options) {
         }
       }
       webSocketServer.close();
+      sessionStore.close();
     }
   };
 }
 
 module.exports = {
+  DEFAULT_API_BASE,
   createBackend,
   discoverGames,
-  parsePathname
+  parsePathname,
+  resolveGameSelection
 };

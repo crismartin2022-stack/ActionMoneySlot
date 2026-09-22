@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const { createBackend, parsePathname } = require('./game-backend');
+const { DEFAULT_API_BASE, createBackend, parsePathname } = require('./game-backend');
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = normalizePort(process.env.PORT, 8080);
@@ -55,6 +55,11 @@ function buildRuntimeConfig(env) {
     source.ACTION_MONEY_SLOT_TOKEN,
     source.TOKEN
   ]);
+  const apiBase = getFirstDefined([
+    source.ACTION_MONEY_SLOT_API_BASE,
+    source.API_BASE,
+    DEFAULT_API_BASE
+  ]);
   const sslHostValue = getFirstDefined([
     source.ACTION_MONEY_SLOT_SSL_HOST,
     source.SSL_HOST
@@ -65,7 +70,7 @@ function buildRuntimeConfig(env) {
     game: gameName,
     language,
     currency,
-    apiBase: '/api'
+    apiBase
   };
 
   if (tcpHost) {
@@ -260,6 +265,10 @@ function createServer(options) {
   const runtimeConfig = options && options.runtimeConfig ? options.runtimeConfig : buildRuntimeConfig();
   const backend = createBackend({
     rootDir: ROOT,
+    apiBase: runtimeConfig.apiBase,
+    dbPath: options && options.backendOptions && options.backendOptions.dbPath
+      ? options.backendOptions.dbPath
+      : process.env.ACTION_MONEY_SLOT_DB_PATH,
     defaults: {
       balance: process.env.ACTION_MONEY_SLOT_START_BALANCE,
       currency: runtimeConfig.currency,
@@ -273,7 +282,7 @@ function createServer(options) {
     const shouldSendBody = method !== 'HEAD';
     const pathname = parsePathname(req.url || '/');
 
-    if (pathname.startsWith('/api/')) {
+    if (pathname === runtimeConfig.apiBase || pathname.startsWith(`${runtimeConfig.apiBase}/`)) {
       const handled = await backend.handleApiRequest(req, res, pathname, shouldSendBody);
       if (!handled) {
         sendJson(res, 404, { error: 'Not Found' }, shouldSendBody);
@@ -306,7 +315,7 @@ function createServer(options) {
       sendJson(res, 200, {
         ok: true,
         entrypoint: DEFAULT_ENTRYPOINT,
-        apiBase: '/api',
+        apiBase: runtimeConfig.apiBase,
         games: backend.games.map((game) => ({
           gameIdentificationNumber: game.gameIdentificationNumber,
           gameName: game.gameName,

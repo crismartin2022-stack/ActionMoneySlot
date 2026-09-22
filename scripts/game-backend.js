@@ -134,7 +134,7 @@ function normalizeStringArray(value, fallback) {
   if (!Array.isArray(value) || !value.length) {
     return clone(fallback);
   }
-  return value.map((entry) => String(entry));
+  return value.slice();
 }
 
 function normalizeDenominations(value) {
@@ -503,7 +503,9 @@ class SessionStore {
       }
 
       this.sessions.set(session.id, session);
-      this.persistSession(session);
+      if (perGameRows.length < this.games.length) {
+        this.persistSession(session);
+      }
     }
   }
 

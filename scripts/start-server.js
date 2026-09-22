@@ -372,7 +372,11 @@ function createServer(options) {
 
   const originalClose = server.close.bind(server);
   let isClosing = false;
+  let isClosed = false;
   const closeCallbacks = [];
+  server.once('close', () => {
+    isClosed = true;
+  });
 
   function flushCloseCallbacks(error) {
     while (closeCallbacks.length) {
@@ -382,6 +386,14 @@ function createServer(options) {
   }
 
   server.close = (callback) => {
+    if (isClosed) {
+      if (typeof callback === 'function') {
+        const error = new Error('Server is not running.');
+        error.code = 'ERR_SERVER_NOT_RUNNING';
+        process.nextTick(() => callback(error));
+      }
+      return server;
+    }
     if (typeof callback === 'function') {
       closeCallbacks.push(callback);
     }

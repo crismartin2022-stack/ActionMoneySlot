@@ -515,6 +515,17 @@ function buildBetResponse(request, session, game, nextState, winAmount, gameComm
   };
 }
 
+function buildFailureResponse(request, reason) {
+  return {
+    messageId: toResponseMessageId(request && request.messageId),
+    command: request && request.command ? request.command : 'event',
+    qName: RESPONSE_QNAMES.base,
+    eventTimestamp: Date.now(),
+    msg: 'failure',
+    reason
+  };
+}
+
 function generateRandomReels(state) {
   const reels = [];
   for (let index = 0; index < DEFAULT_IDLE_REELS.length; index += 1) {
@@ -540,10 +551,39 @@ function handleSpin(request, session, game) {
   const denomination = normalizeNumber(betPayload.denomination, previousState.denomination || game.settings.denominations[0][0]);
   const numberOfLines = normalizeNumber(betPayload.numberOfLines, previousState.numberOfLines || game.settings.lines[0]);
   const betAmount = normalizeNumber(betPayload.bet, previousState.bet || denomination);
+  const validationError = validateBetPayload(game, denomination, numberOfLines, betAmount);
+  if (validationError) {
+    return buildFailureResponse(request, validationError);
+  }
   const totalBet = Math.max(denomination, betAmount) * Math.max(1, numberOfLines);
 
   if (session.balance < totalBet) {
     return buildInsufficientFundsResponse(request, session, game);
+  }
+
+  function validateBetPayload(game, denomination, numberOfLines, betAmount) {
+    const supportedDenominations = game.settings.denominations.map((entry) => Number(entry[0]));
+    if (!supportedDenominations.includes(denomination)) {
+      return `Unsupported denomination: ${denomination}`;
+    }
+
+    const supportedLines = game.settings.lineGame
+      ? game.settings.linesCount.map((value) => Number(value))
+      : game.settings.lines.map((value) => Number(value));
+    if (!supportedLines.includes(numberOfLines)) {
+      return `Unsupported line count: ${numberOfLines}`;
+    }
+
+    if (betAmount < denomination || betAmount % denomination !== 0) {
+      return `Unsupported bet amount: ${betAmount}`;
+    }
+
+    const betUnits = betAmount / denomination;
+    if (!game.settings.bets.map((value) => Number(value)).includes(betUnits)) {
+      return `Unsupported bet amount: ${betAmount}`;
+    }
+
+    return null;
   }
 
   session.balance -= totalBet;
@@ -682,7 +722,13 @@ function createBackend(options) {
       }
 
       const sessionId = extractSessionId(request) || 'demo-session';
-      const session = sessionStore.ensureSession(sessionId);
+      const session = sessionId === 'demo-session'
+        ? sessionStore.ensureSession('demo-session')
+        : sessionStore.getSession(sessionId);
+      if (!session) {
+        writeJsonFrame(ws, buildFailureResponse(request, `Unknown session: ${sessionId}`));
+        return;
+      }
       const game = findGameById(games, request.gameIdentificationNumber) || games[0];
       let response;
 
@@ -790,7 +836,39 @@ function createBackend(options) {
         return true;
       }
 
-      const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)(?:\/balance)?$/);
+      const balanceMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/balance$/);
+      if (balanceMatch) {
+        let sessionId;
+        try {
+          sessionId = decodeURIComponent(balanceMatch[1]);
+        } catch (error) {
+          sendApiJson(res, 400, { error: 'Invalid session id.' }, shouldSendBody);
+          return true;
+        }
+        const session = sessionStore.getSession(sessionId);
+        if (!session) {
+          sendApiJson(res, 404, { error: 'Session not found.' }, shouldSendBody);
+          return true;
+        }
+
+        if (req.method !== 'POST') {
+          sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
+          return true;
+        }
+        try {
+          const payload = await readJsonBody(req);
+          const nextBalance = payload.balance !== undefined
+            ? payload.balance
+            : session.balance + normalizeNumber(payload.amount, 0);
+          const updated = sessionStore.updateBalance(sessionId, nextBalance);
+          sendApiJson(res, 200, { session: sanitizeSessionForApi(updated) }, shouldSendBody);
+        } catch (error) {
+          sendApiJson(res, 400, { error: error.message }, shouldSendBody);
+        }
+        return true;
+      }
+
+      const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
       if (sessionMatch) {
         let sessionId;
         try {
@@ -804,25 +882,6 @@ function createBackend(options) {
           sendApiJson(res, 404, { error: 'Session not found.' }, shouldSendBody);
           return true;
         }
-
-        if (pathname.endsWith('/balance')) {
-          if (req.method !== 'POST') {
-            sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
-            return true;
-          }
-          try {
-            const payload = await readJsonBody(req);
-            const nextBalance = payload.balance !== undefined
-              ? payload.balance
-              : session.balance + normalizeNumber(payload.amount, 0);
-            const updated = sessionStore.updateBalance(sessionId, nextBalance);
-            sendApiJson(res, 200, { session: sanitizeSessionForApi(updated) }, shouldSendBody);
-          } catch (error) {
-            sendApiJson(res, 400, { error: error.message }, shouldSendBody);
-          }
-          return true;
-        }
-
         if (!['GET', 'HEAD'].includes(req.method || 'GET')) {
           sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
           return true;

@@ -221,6 +221,16 @@ async function main() {
       assert.strictEqual(loginResponse.balance, 12400);
       assert(Array.isArray(loginResponse.complex.AMJSlot));
 
+      const missingSessionResponse = await sendWsRequest(socket, {
+        messageId: 'r-r_missing_session',
+        command: 'login',
+        qName: 'jServer.gameManager.login',
+        sessionKey: 'LOCAL:test',
+        sessionId: 'missing-session'
+      });
+      assert.strictEqual(missingSessionResponse.msg, 'failure');
+      assert(missingSessionResponse.reason.includes('Unknown session'));
+
       const settingsResponse = await sendWsRequest(socket, {
         messageId: 'r-r_settings',
         command: 'settings',

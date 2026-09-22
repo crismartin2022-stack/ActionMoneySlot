@@ -390,9 +390,9 @@ function createServer(options) {
     }
     isClosing = true;
     server.off('upgrade', upgradeHandler);
-    backend.shutdown(() => {
-      originalClose((error) => {
-        flushCloseCallbacks(error);
+    backend.shutdown((backendError) => {
+      originalClose((serverError) => {
+        flushCloseCallbacks(backendError || serverError || null);
       });
     });
     return server;

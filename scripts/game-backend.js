@@ -25,6 +25,7 @@ const DEFAULT_GAME_IDENTIFICATION_NUMBER = 1;
 const DEFAULT_GAME_VERSION = '1.3.0';
 const DEFAULT_SYMBOL_COUNT = 11;
 const DEFAULT_API_BASE = '/api';
+const SHUTDOWN_TIMEOUT_MS = 5000;
 const DEFAULT_PAYTABLE = {
   0: { coef: [10, 30, 100], multiplier: 1 },
   1: { coef: [10, 30, 100], multiplier: 1 },
@@ -112,6 +113,10 @@ function randomInt(state, maxExclusive) {
 function normalizeNumber(value, fallback) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function isFiniteNumberInput(value) {
+  return Number.isFinite(Number(value));
 }
 
 function humanizeGameName(gameName) {
@@ -525,6 +530,9 @@ class SessionStore {
   createSession(input = {}) {
     const selectedGame = resolveGameSelection(this.games, input);
     const id = String(input.id || crypto.randomUUID());
+    if (input.id && this.sessions.has(id)) {
+      throw new Error('Session already exists.');
+    }
     const now = new Date().toISOString();
     const session = {
       id,
@@ -1275,9 +1283,19 @@ function createBackend(options) {
         }
         try {
           const payload = await readJsonBody(req);
-          const nextBalance = payload.balance !== undefined
-            ? payload.balance
-            : session.balance + normalizeNumber(payload.amount, 0);
+          const hasBalance = payload.balance !== undefined;
+          const hasAmount = payload.amount !== undefined;
+          if (hasBalance && !isFiniteNumberInput(payload.balance)) {
+            sendApiJson(res, 400, { error: 'Balance must be a valid number.' }, shouldSendBody);
+            return true;
+          }
+          if (!hasBalance && (!hasAmount || !isFiniteNumberInput(payload.amount))) {
+            sendApiJson(res, 400, { error: 'Amount must be a valid number.' }, shouldSendBody);
+            return true;
+          }
+          const nextBalance = hasBalance
+            ? Number(payload.balance)
+            : session.balance + Number(payload.amount);
           const updated = sessionStore.updateBalance(sessionId, nextBalance);
           sendApiJson(res, 200, { session: sanitizeSessionForApi(updated, games) }, shouldSendBody);
         } catch (error) {
@@ -1321,44 +1339,95 @@ function createBackend(options) {
         socket.destroy();
         return;
       }
+      const origin = req.headers.origin;
+      const host = req.headers.host;
+      if (origin && host) {
+        try {
+          const originUrl = new URL(origin);
+          if (originUrl.host !== host) {
+            socket.destroy();
+            return;
+          }
+        } catch (error) {
+          socket.destroy();
+          return;
+        }
+      }
       const pathname = parsePathname(req.url || '/');
       if (pathname !== '/' && pathname !== '/ws') {
         socket.destroy();
         return;
       }
-      webSocketServer.handleUpgrade(req, socket, head, (ws) => {
-        webSocketServer.emit('connection', ws, req);
-      });
+      try {
+        webSocketServer.handleUpgrade(req, socket, head, (ws) => {
+          try {
+            webSocketServer.emit('connection', ws, req);
+          } catch (error) {
+            ws.terminate();
+          }
+        });
+      } catch (error) {
+        socket.destroy();
+      }
     },
     shutdown(callback) {
       const done = typeof callback === 'function' ? callback : () => {};
       const trackedSockets = Array.from(sockets);
       let remaining = trackedSockets.length;
       let finalized = false;
+      let serverClosed = false;
+      let shutdownError = null;
+      const shutdownTimer = setTimeout(() => {
+        for (const ws of trackedSockets) {
+          try {
+            ws.terminate();
+          } catch (error) {
+            // ignore terminate failures while forcing shutdown
+          }
+        }
+        finalize(new Error('Timed out shutting down backend WebSocket connections.'));
+      }, SHUTDOWN_TIMEOUT_MS);
 
-      function finalize() {
+      function finalize(error) {
         if (finalized) {
           return;
         }
         finalized = true;
-        sessionStore.close();
-        done();
+        clearTimeout(shutdownTimer);
+        let finalError = error || null;
+        try {
+          sessionStore.close();
+        } catch (closeError) {
+          finalError = finalError || closeError;
+        }
+        done(finalError);
+      }
+
+      function maybeFinalize() {
+        if (serverClosed && remaining <= 0) {
+          finalize(shutdownError);
+        }
       }
 
       function markClosed() {
         remaining -= 1;
-        if (remaining <= 0) {
-          finalize();
-        }
+        maybeFinalize();
       }
 
-      webSocketServer.close(() => {
-        if (!trackedSockets.length) {
-          finalize();
-        }
-      });
+      try {
+        webSocketServer.close((error) => {
+          serverClosed = true;
+          shutdownError = error || shutdownError;
+          maybeFinalize();
+        });
+      } catch (error) {
+        finalize(error);
+        return;
+      }
 
       if (!trackedSockets.length) {
+        remaining = 0;
+        maybeFinalize();
         return;
       }
 

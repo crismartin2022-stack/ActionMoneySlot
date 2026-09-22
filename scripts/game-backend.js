@@ -121,6 +121,10 @@ function humanizeGameName(gameName) {
     .trim() || 'Game';
 }
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function normalizeStringArray(value, fallback) {
   if (!Array.isArray(value) || !value.length) {
     return clone(fallback);
@@ -422,7 +426,6 @@ class SessionStore {
           currency = excluded.currency,
           language = excluded.language,
           selected_game_id = excluded.selected_game_id,
-          created_at = excluded.created_at,
           updated_at = excluded.updated_at
       `),
       upsertSessionGame: this.db.prepare(`
@@ -1027,6 +1030,7 @@ function findGameById(games, gameIdentificationNumber) {
 function createBackend(options) {
   const rootDir = options.rootDir;
   const apiBase = options.apiBase || DEFAULT_API_BASE;
+  const apiBasePattern = escapeRegex(apiBase);
   const games = discoverGames(rootDir);
   const sessionStore = new SessionStore(games, {
     rootDir,
@@ -1139,7 +1143,7 @@ function createBackend(options) {
         return true;
       }
 
-      const gameMatch = pathname.match(new RegExp(`^${apiBase.replace('/', '\\/')}\\/games\\/(\\d+)$`));
+      const gameMatch = pathname.match(new RegExp(`^${apiBasePattern}\\/games\\/(\\d+)$`));
       if (gameMatch) {
         if (!['GET', 'HEAD'].includes(req.method || 'GET')) {
           res.setHeader('Allow', 'GET, HEAD');
@@ -1190,7 +1194,7 @@ function createBackend(options) {
         return true;
       }
 
-      const selectGameMatch = pathname.match(new RegExp(`^${apiBase.replace('/', '\\/')}\\/sessions\\/([^/]+)\\/select-game$`));
+      const selectGameMatch = pathname.match(new RegExp(`^${apiBasePattern}\\/sessions\\/([^/]+)\\/select-game$`));
       if (selectGameMatch) {
         let sessionId;
         try {
@@ -1227,7 +1231,7 @@ function createBackend(options) {
         return true;
       }
 
-      const balanceMatch = pathname.match(new RegExp(`^${apiBase.replace('/', '\\/')}\\/sessions\\/([^/]+)\\/balance$`));
+      const balanceMatch = pathname.match(new RegExp(`^${apiBasePattern}\\/sessions\\/([^/]+)\\/balance$`));
       if (balanceMatch) {
         let sessionId;
         try {
@@ -1260,7 +1264,7 @@ function createBackend(options) {
         return true;
       }
 
-      const sessionMatch = pathname.match(new RegExp(`^${apiBase.replace('/', '\\/')}\\/sessions\\/([^/]+)$`));
+      const sessionMatch = pathname.match(new RegExp(`^${apiBasePattern}\\/sessions\\/([^/]+)$`));
       if (sessionMatch) {
         let sessionId;
         try {
@@ -1304,16 +1308,46 @@ function createBackend(options) {
         webSocketServer.emit('connection', ws, req);
       });
     },
-    shutdown() {
-      for (const ws of sockets) {
+    shutdown(callback) {
+      const done = typeof callback === 'function' ? callback : () => {};
+      const trackedSockets = Array.from(sockets);
+      let remaining = trackedSockets.length;
+      let finalized = false;
+
+      function finalize() {
+        if (finalized) {
+          return;
+        }
+        finalized = true;
+        sessionStore.close();
+        done();
+      }
+
+      function markClosed() {
+        remaining -= 1;
+        if (remaining <= 0) {
+          finalize();
+        }
+      }
+
+      webSocketServer.close(() => {
+        if (!trackedSockets.length) {
+          finalize();
+        }
+      });
+
+      if (!trackedSockets.length) {
+        return;
+      }
+
+      for (const ws of trackedSockets) {
+        ws.once('close', markClosed);
         try {
           ws.close();
         } catch (error) {
-          // ignore socket close errors during shutdown
+          markClosed();
         }
       }
-      webSocketServer.close();
-      sessionStore.close();
     }
   };
 }

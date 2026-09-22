@@ -365,13 +365,24 @@ function createServer(options) {
     });
   });
 
-  server.on('upgrade', (req, socket, head) => {
+  const upgradeHandler = (req, socket, head) => {
     backend.handleUpgrade(req, socket, head);
-  });
+  };
+  server.on('upgrade', upgradeHandler);
 
-  server.on('close', () => {
-    backend.shutdown();
-  });
+  const originalClose = server.close.bind(server);
+  let isClosing = false;
+  server.close = (callback) => {
+    if (isClosing) {
+      return originalClose(callback);
+    }
+    isClosing = true;
+    server.off('upgrade', upgradeHandler);
+    backend.shutdown(() => {
+      originalClose(callback);
+    });
+    return server;
+  };
 
   return server;
 }

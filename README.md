@@ -18,6 +18,13 @@ Este repositorio ahora incluye:
 - persiste sesiones, saldo y estado por juego en SQLite
 - descubre juegos disponibles bajo `ActionMoneyEGT/html5/games/*/*/Config.js`
 
+## Requisitos
+
+- Node.js 22 o superior
+- npm
+
+> Este proyecto depende de `node:sqlite`, así que la versión mínima recomendada es Node 22.
+
 ## Endpoints principales
 
 - `GET /health`

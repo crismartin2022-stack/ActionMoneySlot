@@ -122,12 +122,11 @@
           existingSessionId = window.sessionStorage.getItem('sessionId');
         } catch (error) {}
 
-        var sessionId = getQueryParam(
-          'sessionId',
-          existingSessionId
+        var querySessionId = getQueryParam('sessionId', null);
+        var sessionId = querySessionId
           || runtimeConfig.sessionId
-          || getQueryParam('token', runtimeConfig.token || 'demo-session')
-        );
+          || existingSessionId
+          || getQueryParam('token', runtimeConfig.token || 'demo-session');
 
         try {
           window.sessionStorage.setItem('sessionId', sessionId);

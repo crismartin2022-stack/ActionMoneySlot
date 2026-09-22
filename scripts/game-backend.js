@@ -574,13 +574,16 @@ function handleSpin(request, session, game) {
   const betPayload = request.bet || {};
   const previousState = sessionGame.state;
   const denomination = normalizeNumber(betPayload.denomination, previousState.denomination || game.settings.denominations[0][0]);
-  const numberOfLines = normalizeNumber(betPayload.numberOfLines, previousState.numberOfLines || game.settings.lines[0]);
-  const betAmount = normalizeNumber(betPayload.bet, previousState.bet || denomination);
-  const validationError = validateBetPayload(game, denomination, numberOfLines, betAmount);
+  const numberOfLines = normalizeNumber(
+    betPayload.lines !== undefined ? betPayload.lines : betPayload.numberOfLines,
+    previousState.numberOfLines || game.settings.lines[0]
+  );
+  const perLineBet = normalizeNumber(betPayload.bet, previousState.bet || denomination);
+  const validationError = validateBetPayload(game, denomination, numberOfLines, perLineBet);
   if (validationError) {
     return buildFailureResponse(request, validationError);
   }
-  const totalBet = Math.max(denomination, betAmount) * Math.max(1, numberOfLines);
+  const totalBet = perLineBet * Math.max(1, numberOfLines);
 
   if (session.balance < totalBet) {
     return buildInsufficientFundsResponse(request, session, game);
@@ -598,7 +601,7 @@ function handleSpin(request, session, game) {
   const nextState = {
     ...clone(previousState),
     state: 'idle',
-    bet: betAmount,
+    bet: perLineBet,
     denomination,
     numberOfLines,
     winAmount,
@@ -664,7 +667,7 @@ function sanitizeSessionForApi(session) {
 function buildLaunchUrl(session, gameName) {
   const encodedGame = encodeURIComponent(gameName || DEFAULT_GAME_NAME);
   const encodedSessionId = encodeURIComponent(session.id);
-  return `/ActionMoneyEGT/html5/index.html?game=${encodedGame}&sessionId=${encodedSessionId}`;
+  return `/ActionMoneyEGT/html5/index.html?game=${encodedGame}&sessionId=${encodedSessionId}&apiBase=${encodeURIComponent('/api')}`;
 }
 
 function extractSessionId(request) {
@@ -695,6 +698,7 @@ function createBackend(options) {
   const rootDir = options.rootDir;
   const games = discoverGames(rootDir);
   const sessionStore = new SessionStore(games, options.defaults);
+  sessionStore.ensureSession('demo-session');
   const sockets = new Set();
   const webSocketServer = new WebSocketServer({ noServer: true });
 
@@ -722,9 +726,7 @@ function createBackend(options) {
       }
 
       const sessionId = extractSessionId(request) || 'demo-session';
-      const session = sessionId === 'demo-session'
-        ? sessionStore.ensureSession('demo-session')
-        : sessionStore.getSession(sessionId);
+      const session = sessionStore.getSession(sessionId);
       if (!session) {
         writeJsonFrame(ws, buildFailureResponse(request, `Unknown session: ${sessionId}`));
         return;

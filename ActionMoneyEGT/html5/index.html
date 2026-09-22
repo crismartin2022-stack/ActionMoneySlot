@@ -124,10 +124,9 @@
 
         var sessionId = getQueryParam(
           'sessionId',
-          getQueryParam(
-            'token',
-            runtimeConfig.sessionId || runtimeConfig.token || existingSessionId || 'demo-session'
-          )
+          existingSessionId
+          || runtimeConfig.sessionId
+          || getQueryParam('token', runtimeConfig.token || 'demo-session')
         );
 
         try {
@@ -330,6 +329,7 @@
 
       waitForRuntimeDependencies(function () {
         var runtimeConfig = window.__ACTION_MONEY_SLOT_CONFIG || {};
+        runtimeConfig.apiBase = getQueryParam('apiBase', runtimeConfig.apiBase || '/api');
         var sessionId = ensureSessionId(runtimeConfig);
         var defaultSslHost = typeof runtimeConfig.sslHost === 'boolean'
           ? runtimeConfig.sslHost

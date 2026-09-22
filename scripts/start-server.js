@@ -5,6 +5,8 @@ const http = require('http');
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = normalizePort(process.env.PORT, 8080);
 const ROOT = path.resolve(__dirname, '..');
+const STATIC_ROUTE_PREFIX = '/ActionMoneyEGT';
+const STATIC_ROOT = path.join(ROOT, 'ActionMoneyEGT');
 const DEFAULT_ENTRYPOINT = '/ActionMoneyEGT/html5/index.html';
 
 const MIME_TYPES = {
@@ -182,24 +184,33 @@ function decodeRequestPath(requestPath) {
 }
 
 function resolveRequestPath(cleanPath) {
-
   if (cleanPath === '/') {
     return {
       redirect: DEFAULT_ENTRYPOINT
     };
   }
 
-  const relativeRequestPath = cleanPath.replace(/^\/+/, '');
-  const normalizedPath = path.normalize(path.join(ROOT, relativeRequestPath));
-  const normalizedRoot = path.normalize(ROOT);
-  const rootPrefix = normalizedRoot.endsWith(path.sep)
-    ? normalizedRoot
-    : normalizedRoot + path.sep;
-  const comparablePath = normalizedPath.toLowerCase();
-  const comparableRoot = normalizedRoot.toLowerCase();
-  const comparableRootPrefix = rootPrefix.toLowerCase();
+  if (cleanPath === STATIC_ROUTE_PREFIX) {
+    return {
+      redirect: DEFAULT_ENTRYPOINT
+    };
+  }
 
-  if (comparablePath !== comparableRoot && !comparablePath.startsWith(comparableRootPrefix)) {
+  if (!cleanPath.startsWith(`${STATIC_ROUTE_PREFIX}/`)) {
+    return {
+      error: 404
+    };
+  }
+
+  const relativeRequestPath = cleanPath.slice(STATIC_ROUTE_PREFIX.length + 1);
+  const normalizedPath = path.resolve(STATIC_ROOT, relativeRequestPath || '.');
+  const relativeToStaticRoot = path.relative(STATIC_ROOT, normalizedPath);
+
+  if (
+    relativeToStaticRoot === '..'
+    || relativeToStaticRoot.startsWith(`..${path.sep}`)
+    || path.isAbsolute(relativeToStaticRoot)
+  ) {
     return {
       error: 403
     };
@@ -265,7 +276,13 @@ function createServer(options) {
       res.writeHead(statusCode, {
         'Content-Type': 'text/plain; charset=utf-8'
       });
-      res.end(shouldSendBody ? (statusCode === 400 ? 'Bad Request' : 'Forbidden') : undefined);
+      let responseBody = 'Forbidden';
+      if (statusCode === 400) {
+        responseBody = 'Bad Request';
+      } else if (statusCode === 404) {
+        responseBody = 'Not Found';
+      }
+      res.end(shouldSendBody ? responseBody : undefined);
       return;
     }
 

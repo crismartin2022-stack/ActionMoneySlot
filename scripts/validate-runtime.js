@@ -94,8 +94,11 @@ async function main() {
     assert.strictEqual(entrypoint.statusCode, 200);
     assert(entrypoint.body.includes('<title>ActionMoneySlot</title>'));
 
-    const traversal = await httpRequest(address.port, '/%2e%2e/package.json');
+    const traversal = await httpRequest(address.port, '/ActionMoneyEGT/%2e%2e/package.json');
     assert.strictEqual(traversal.statusCode, 403);
+
+    const hiddenRepoFile = await httpRequest(address.port, '/package.json');
+    assert.strictEqual(hiddenRepoFile.statusCode, 404);
 
     const runtimeScript = await httpRequest(address.port, '/runtime-config.js');
     assert.strictEqual(runtimeScript.statusCode, 200);

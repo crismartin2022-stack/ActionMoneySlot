@@ -151,7 +151,11 @@
     elements.versionPill.textContent = settings.gameVersion || 'custom';
     fillSelect(elements.betSelect, settings.bets || [1], settings.bets && settings.bets[0]);
     fillSelect(elements.denominationSelect, (mathConfig.denominations || [1]), (mathConfig.denominations || [1])[0]);
-    const lines = settings.linesCount || settings.lines || [5];
+    const lines = Array.isArray(settings.linesCount)
+      ? settings.linesCount
+      : (Array.isArray(settings.lines)
+        ? settings.lines
+        : Array.from({ length: Number(settings.linesCount || ((mathConfig.layout && mathConfig.layout.paylines && mathConfig.layout.paylines.length) || (mathConfig.layout && mathConfig.layout.reels) || 1)) }, (_, index) => index + 1));
     fillSelect(elements.linesSelect, lines, lines[0]);
   }
 
@@ -162,9 +166,11 @@
 
   function renderReelsFromState(currentState) {
     const reels = Array.isArray(currentState && currentState.reels) ? currentState.reels : [];
+    const reelCount = Number((state.selectedGame && state.selectedGame.mathConfig && state.selectedGame.mathConfig.layout && state.selectedGame.mathConfig.layout.reels) || 5);
+    elements.reels.style.gridTemplateColumns = 'repeat(' + reelCount + ', minmax(88px, 1fr))';
     elements.reels.innerHTML = '';
     if (!reels.length) {
-      for (let columnIndex = 0; columnIndex < 5; columnIndex += 1) {
+      for (let columnIndex = 0; columnIndex < reelCount; columnIndex += 1) {
         const column = document.createElement('div');
         column.className = 'reel-column';
         for (let rowIndex = 0; rowIndex < 3; rowIndex += 1) {

@@ -58,7 +58,7 @@ h1, h2, h3, p { margin: 0; }
 .pill { border: 1px solid var(--line); padding: 6px 10px; border-radius: 999px; color: var(--muted); font-size: 12px; }
 .reels {
   display: grid;
-  grid-template-columns: repeat(5, minmax(88px, 1fr));
+  grid-template-columns: repeat(var(--reel-count, 5), minmax(88px, 1fr));
   gap: 10px;
   margin-bottom: 18px;
 }
@@ -120,5 +120,5 @@ pre {
 @media (max-width: 840px) {
   .topbar { flex-direction: column; }
   .control-grid, .summary-grid { grid-template-columns: 1fr; }
-  .reels { grid-template-columns: repeat(5, minmax(52px, 1fr)); }
+  .reels { grid-template-columns: repeat(var(--reel-count, 5), minmax(52px, 1fr)); }
 }

@@ -963,6 +963,7 @@ class SessionStore {
     });
     this.sessions.set(id, session);
     this.persistSession(session);
+    session.lastSeenAt = Date.now();
     return session;
   }
 
@@ -2064,7 +2065,8 @@ function createBackend(options) {
     if (!session) {
       return null;
     }
-    if ((Date.now() - session.createdAt) > ADMIN_SESSION_MAX_AGE_MS) {
+    const lastSeenAt = session.lastSeenAt || session.createdAt;
+    if ((Date.now() - lastSeenAt) > ADMIN_SESSION_MAX_AGE_MS) {
       adminSessions.delete(sessionId);
       return null;
     }
@@ -2076,7 +2078,8 @@ function createBackend(options) {
     const csrfToken = crypto.randomBytes(24).toString('hex');
     adminSessions.set(sessionId, {
       csrfToken,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      lastSeenAt: Date.now()
     });
     return {
       sessionId,

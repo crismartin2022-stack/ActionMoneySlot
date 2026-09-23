@@ -210,11 +210,24 @@
     });
   }
 
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Failed to read image file.'));
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        const marker = 'base64,';
+        const index = result.indexOf(marker);
+        resolve(index >= 0 ? result.slice(index + marker.length) : result);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
   async function uploadImage() {
     const file = document.getElementById('image-file').files[0];
     if (!file) throw new Error('Select an image first.');
-    const buffer = await file.arrayBuffer();
-    const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(buffer)));
+    const base64 = await fileToBase64(file);
     await call(config.apiBase + '/images', {
       method: 'POST',
       body: JSON.stringify({

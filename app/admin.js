@@ -29,7 +29,11 @@
 
   function showSection(id) {
     sections.forEach((section) => section.classList.toggle('hidden', section.dataset.adminSection !== id));
-    navButtons.forEach((button) => button.classList.toggle('primary', button.dataset.navTarget === id));
+    navButtons.forEach((button) => {
+      const active = button.dataset.navTarget === id;
+      button.classList.toggle('primary', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
   }
 
   function parseCsvNumbers(value) {
@@ -177,17 +181,17 @@
     if (!game) return;
     const paylineSource = JSON.parse(document.getElementById('paylines-input').value || '[]');
     const layoutMode = document.getElementById('layout-mode').value;
-    const lines = layoutMode === 'ways'
-      ? Number(document.getElementById('layout-reels').value)
-      : Math.max(1, Array.isArray(paylineSource) ? paylineSource.length : 1);
+    const simulationPayload = {
+      spins: Number(document.getElementById('rtp-spins').value),
+      denomination: Number(document.getElementById('denominations-input').value.split(',')[0].trim() || 1),
+      betPerLine: Number(document.getElementById('bets-input').value.split(',')[0].trim() || 1)
+    };
+    if (layoutMode !== 'ways') {
+      simulationPayload.lines = Math.max(1, Array.isArray(paylineSource) ? paylineSource.length : 1);
+    }
     const payload = await call(config.apiBase + '/games/' + game.gameIdentificationNumber + '/rtp', {
       method: 'POST',
-      body: JSON.stringify({
-        spins: Number(document.getElementById('rtp-spins').value),
-        denomination: Number(document.getElementById('denominations-input').value.split(',')[0].trim() || 1),
-        betPerLine: Number(document.getElementById('bets-input').value.split(',')[0].trim() || 1),
-        lines
-      })
+      body: JSON.stringify(simulationPayload)
     });
     document.getElementById('rtp-result').textContent = JSON.stringify(payload.simulation, null, 2);
     await loadRtpHistory();

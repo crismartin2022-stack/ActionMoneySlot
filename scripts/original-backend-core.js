@@ -1294,10 +1294,11 @@ class SessionStore {
 
   saveGameVersion(game, versionLabel) {
     const now = new Date().toISOString();
+    const uniqueLabel = `${String(versionLabel || 'snapshot')}@${now}`;
     this.statements.insertGameVersion.run(
       crypto.randomUUID(),
       game.gameIdentificationNumber,
-      String(versionLabel || `snapshot-${now}`),
+      uniqueLabel,
       game.displayName,
       game.status,
       String(game.buildTime || ''),

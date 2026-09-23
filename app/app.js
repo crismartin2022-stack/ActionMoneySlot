@@ -75,10 +75,15 @@
   }
 
   async function request(path, options) {
+    const method = ((options && options.method) || 'GET').toUpperCase();
+    const headers = { ...(options && options.headers ? options.headers : {}) };
+    if (!headers['Content-Type'] && !['GET', 'HEAD'].includes(method) && options && options.body) {
+      headers['Content-Type'] = 'application/json';
+    }
     const response = await fetch(path, {
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', ...(options && options.headers ? options.headers : {}) },
-      ...options
+      ...options,
+      headers
     });
     const text = await response.text();
     let data = {};
@@ -176,6 +181,7 @@
     const layout = state.selectedGame && state.selectedGame.mathConfig && state.selectedGame.mathConfig.layout;
     const reelCount = Number((layout && layout.reels) || 5);
     const rowCount = Number((layout && layout.rows) || 3);
+    const transportWindow = rowCount + 2;
     elements.reels.style.gridTemplateColumns = 'repeat(' + reelCount + ', minmax(88px, 1fr))';
     elements.reels.innerHTML = '';
     if (!reels.length) {
@@ -192,9 +198,9 @@
       }
       return;
     }
-    for (let reelIndex = 0; reelIndex < reels.length; reelIndex += 5) {
-      const transport = reels.slice(reelIndex, reelIndex + 5);
-      const visible = transport.slice(1, 4);
+    for (let reelIndex = 0; reelIndex < reels.length; reelIndex += transportWindow) {
+      const transport = reels.slice(reelIndex, reelIndex + transportWindow);
+      const visible = transport.slice(1, 1 + rowCount);
       const column = document.createElement('div');
       column.className = 'reel-column';
       visible.forEach((symbolId) => {

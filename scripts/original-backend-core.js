@@ -36,6 +36,7 @@ const DEFAULT_API_BASE = '/api';
 const VERSION_SEGMENT = '/v1';
 const SHUTDOWN_TIMEOUT_MS = 5000;
 const DEFAULT_ADMIN_TOKEN = 'change-me-admin-token';
+const ADMIN_SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 
 function normalizeNumber(value, fallback) {
   const numeric = Number(value);
@@ -479,13 +480,21 @@ function toResponseMessageId(requestMessageId) {
   return typeof requestMessageId === 'string' && requestMessageId ? requestMessageId : `r-r_${crypto.randomUUID()}`;
 }
 
-function buildLaunchUrl(session, game, apiBase = DEFAULT_API_BASE) {
+function buildFrontendLaunchUrl(basePath, session, game, apiBase = DEFAULT_API_BASE) {
   const targetGame = game || {
     gameName: DEFAULT_GAME_NAME,
     gameType: DEFAULT_GAME_TYPE,
     gameIdentificationNumber: DEFAULT_GAME_IDENTIFICATION_NUMBER
   };
-  return `/ActionMoneyEGT/html5/index.html?game=${encodeURIComponent(targetGame.gameName)}&gameType=${encodeURIComponent(targetGame.gameType)}&gameIdentificationNumber=${encodeURIComponent(targetGame.gameIdentificationNumber)}&sessionId=${encodeURIComponent(session.id)}&apiBase=${encodeURIComponent(apiBase)}`;
+  return `${basePath}?game=${encodeURIComponent(targetGame.gameName)}&gameType=${encodeURIComponent(targetGame.gameType)}&gameIdentificationNumber=${encodeURIComponent(targetGame.gameIdentificationNumber)}&sessionId=${encodeURIComponent(session.id)}&apiBase=${encodeURIComponent(apiBase)}`;
+}
+
+function buildLaunchUrl(session, game, apiBase = DEFAULT_API_BASE) {
+  return buildFrontendLaunchUrl('/app/index.html', session, game, apiBase);
+}
+
+function buildLegacyLaunchUrl(session, game, apiBase = DEFAULT_API_BASE) {
+  return buildFrontendLaunchUrl('/ActionMoneyEGT/html5/index.html', session, game, apiBase);
 }
 
 function buildGameCatalogEntry(game, session, apiBase, versionedApiBase) {
@@ -500,6 +509,7 @@ function buildGameCatalogEntry(game, session, apiBase, versionedApiBase) {
     settings: clone(game.settings),
     mathConfig: clone(game.mathConfig),
     launchUrl: buildLaunchUrl(session, game, apiBase),
+    legacyLaunchUrl: buildLegacyLaunchUrl(session, game, apiBase),
     configUrl: `${versionedApiBase}/games/${game.gameIdentificationNumber}/config`,
     rtpSimulationUrl: `${versionedApiBase}/games/${game.gameIdentificationNumber}/rtp`
   };
@@ -638,6 +648,36 @@ class SessionStore {
         created_at TEXT NOT NULL,
         revoked_at TEXT
       );
+      CREATE TABLE IF NOT EXISTS game_versions (
+        id TEXT PRIMARY KEY,
+        game_identification_number INTEGER NOT NULL,
+        version_label TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        status TEXT NOT NULL,
+        build_time TEXT NOT NULL,
+        settings_json TEXT NOT NULL,
+        static_config_json TEXT NOT NULL,
+        math_config_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS rtp_runs (
+        id TEXT PRIMARY KEY,
+        game_identification_number INTEGER NOT NULL,
+        version_label TEXT NOT NULL,
+        seed TEXT,
+        options_json TEXT NOT NULL,
+        simulation_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS admin_audit_log (
+        id TEXT PRIMARY KEY,
+        actor TEXT NOT NULL,
+        action TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        details_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
     `);
     try {
       this.db.exec('ALTER TABLE api_keys ADD COLUMN lookup_key TEXT');
@@ -724,7 +764,25 @@ class SessionStore {
       selectApiKeys: this.db.prepare('SELECT * FROM api_keys ORDER BY created_at DESC'),
       selectActiveApiKeyByLookup: this.db.prepare('SELECT * FROM api_keys WHERE lookup_key = ? AND active = 1 LIMIT 1'),
       touchApiKey: this.db.prepare('UPDATE api_keys SET last_used_at = ? WHERE id = ?'),
-      revokeApiKey: this.db.prepare('UPDATE api_keys SET active = 0, revoked_at = ? WHERE id = ?')
+      revokeApiKey: this.db.prepare('UPDATE api_keys SET active = 0, revoked_at = ? WHERE id = ?'),
+      insertGameVersion: this.db.prepare(`
+        INSERT INTO game_versions (
+          id, game_identification_number, version_label, display_name, status, build_time,
+          settings_json, static_config_json, math_config_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `),
+      selectGameVersions: this.db.prepare('SELECT * FROM game_versions WHERE game_identification_number = ? ORDER BY created_at DESC, id DESC'),
+      selectLatestGameVersion: this.db.prepare('SELECT * FROM game_versions WHERE game_identification_number = ? ORDER BY created_at DESC, id DESC LIMIT 1'),
+      insertRtpRun: this.db.prepare(`
+        INSERT INTO rtp_runs (id, game_identification_number, version_label, seed, options_json, simulation_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `),
+      selectRtpRunsByGame: this.db.prepare('SELECT * FROM rtp_runs WHERE game_identification_number = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?'),
+      insertAdminAudit: this.db.prepare(`
+        INSERT INTO admin_audit_log (id, actor, action, target_type, target_id, details_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `),
+      selectAdminAudit: this.db.prepare('SELECT * FROM admin_audit_log ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?')
     };
   }
 
@@ -764,6 +822,11 @@ class SessionStore {
       staticConfig: JSON.parse(row.static_config_json),
       mathConfig: JSON.parse(row.math_config_json)
     }));
+    this.games.forEach((game) => {
+      if (!this.statements.selectLatestGameVersion.get(Number(game.gameIdentificationNumber))) {
+        this.saveGameVersion(game, 'seed');
+      }
+    });
   }
 
   getNextGameIdentificationNumber() {
@@ -1106,6 +1169,7 @@ class SessionStore {
         now,
         imageId
       );
+      this.recordAdminAudit('image.updated', 'image', imageId, { fileName, gameIdentificationNumber: payload.gameIdentificationNumber ?? null });
     } else {
       this.statements.insertImage.run(
         imageId,
@@ -1118,6 +1182,7 @@ class SessionStore {
         now,
         now
       );
+      this.recordAdminAudit('image.created', 'image', imageId, { fileName, gameIdentificationNumber: payload.gameIdentificationNumber ?? null });
     }
     return this.getImage(imageId);
   }
@@ -1131,6 +1196,7 @@ class SessionStore {
     if (image.storagePath && fs.existsSync(image.storagePath)) {
       fs.rmSync(image.storagePath, { force: true });
     }
+    this.recordAdminAudit('image.deleted', 'image', id, { fileName: image.fileName });
     return true;
   }
 
@@ -1146,6 +1212,7 @@ class SessionStore {
       serializePermissions(payload.permissions),
       now
     );
+    this.recordAdminAudit('api_key.created', 'api_key', id, { label: String(payload.label || 'integration') });
     return {
       id,
       token: generated.token,
@@ -1170,6 +1237,7 @@ class SessionStore {
   revokeApiKey(id) {
     const now = new Date().toISOString();
     this.statements.revokeApiKey.run(now, String(id));
+    this.recordAdminAudit('api_key.revoked', 'api_key', id, {});
     return this.listApiKeys().find((entry) => entry.id === String(id)) || null;
   }
 
@@ -1196,6 +1264,102 @@ class SessionStore {
     };
   }
 
+  recordAdminAudit(action, targetType, targetId, details = {}, actor = 'admin') {
+    const now = new Date().toISOString();
+    this.statements.insertAdminAudit.run(
+      crypto.randomUUID(),
+      String(actor || 'admin'),
+      String(action),
+      String(targetType),
+      String(targetId),
+      JSON.stringify(details || {}),
+      now
+    );
+  }
+
+  listAdminAudit(options = {}) {
+    const limit = Math.min(200, Math.max(1, normalizeNumber(options.limit, 50)));
+    const offset = Math.max(0, normalizeNumber(options.offset, 0));
+    return this.statements.selectAdminAudit.all(limit, offset).map((row) => ({
+      id: row.id,
+      actor: row.actor,
+      action: row.action,
+      targetType: row.target_type,
+      targetId: row.target_id,
+      details: JSON.parse(row.details_json),
+      createdAt: row.created_at
+    }));
+  }
+
+  saveGameVersion(game, versionLabel) {
+    const now = new Date().toISOString();
+    this.statements.insertGameVersion.run(
+      crypto.randomUUID(),
+      game.gameIdentificationNumber,
+      String(versionLabel || `snapshot-${now}`),
+      game.displayName,
+      game.status,
+      String(game.buildTime || ''),
+      JSON.stringify(game.settings),
+      JSON.stringify(game.staticConfig || {}),
+      JSON.stringify(game.mathConfig),
+      now
+    );
+  }
+
+  listGameVersions(gameIdentificationNumber) {
+    return this.statements.selectGameVersions.all(Number(gameIdentificationNumber)).map((row) => ({
+      id: row.id,
+      gameIdentificationNumber: Number(row.game_identification_number),
+      versionLabel: row.version_label,
+      displayName: row.display_name,
+      status: row.status,
+      buildTime: row.build_time,
+      settings: JSON.parse(row.settings_json),
+      staticConfig: JSON.parse(row.static_config_json),
+      mathConfig: JSON.parse(row.math_config_json),
+      createdAt: row.created_at
+    }));
+  }
+
+  storeRtpRun(game, simulationOptions, simulation) {
+    const now = new Date().toISOString();
+    const runId = crypto.randomUUID();
+    const versionLabel = `${game.displayName}@${game.status}`;
+    this.statements.insertRtpRun.run(
+      runId,
+      game.gameIdentificationNumber,
+      versionLabel,
+      simulationOptions.seed === undefined ? null : String(simulationOptions.seed),
+      JSON.stringify(simulationOptions || {}),
+      JSON.stringify(simulation),
+      now
+    );
+    return {
+      id: runId,
+      gameIdentificationNumber: game.gameIdentificationNumber,
+      versionLabel,
+      seed: simulationOptions.seed === undefined ? null : String(simulationOptions.seed),
+      options: clone(simulationOptions || {}),
+      simulation: clone(simulation),
+      createdAt: now
+    };
+  }
+
+  listRtpRuns(gameIdentificationNumber, options = {}) {
+    const limit = Math.min(100, Math.max(1, normalizeNumber(options.limit, 20)));
+    const offset = Math.max(0, normalizeNumber(options.offset, 0));
+    return this.statements.selectRtpRunsByGame.all(Number(gameIdentificationNumber), limit, offset).map((row) => ({
+      id: row.id,
+      gameIdentificationNumber: Number(row.game_identification_number),
+      versionLabel: row.version_label,
+      seed: row.seed,
+      options: JSON.parse(row.options_json),
+      simulation: JSON.parse(row.simulation_json),
+      createdAt: row.created_at
+    }));
+  }
+
   createGame(payload = {}) {
     const baseGame = payload.baseGameIdentificationNumber
       ? this.findGameById(payload.baseGameIdentificationNumber)
@@ -1217,7 +1381,10 @@ class SessionStore {
     });
     newGame.initialState = createDefaultSessionState(newGame);
     this.persistCatalogGame(newGame);
-    return this.findGameById(newGame.gameIdentificationNumber);
+    const storedGame = this.findGameById(newGame.gameIdentificationNumber);
+    this.saveGameVersion(storedGame, 'created');
+    this.recordAdminAudit('game.created', 'game', storedGame.gameIdentificationNumber, { displayName: storedGame.displayName, status: storedGame.status });
+    return storedGame;
   }
 
   duplicateGame(id, payload = {}) {
@@ -1225,12 +1392,14 @@ class SessionStore {
     if (!game) {
       return null;
     }
-    return this.createGame({
+    const duplicated = this.createGame({
       baseGameIdentificationNumber: game.gameIdentificationNumber,
       displayName: payload.displayName || `${game.displayName} Copy`,
       status: payload.status || 'draft',
       mathConfig: payload.mathConfig || game.mathConfig
     });
+    this.recordAdminAudit('game.duplicated', 'game', duplicated.gameIdentificationNumber, { sourceGameId: game.gameIdentificationNumber, displayName: duplicated.displayName });
+    return duplicated;
   }
 
   updateGame(id, payload = {}) {
@@ -1254,7 +1423,10 @@ class SessionStore {
     });
     game.initialState = createDefaultSessionState(game);
     this.persistCatalogGame(game);
-    return this.findGameById(id);
+    const storedGame = this.findGameById(id);
+    this.saveGameVersion(storedGame, 'updated');
+    this.recordAdminAudit('game.updated', 'game', storedGame.gameIdentificationNumber, { displayName: storedGame.displayName, status: storedGame.status });
+    return storedGame;
   }
 
   publishGame(id) {
@@ -1264,7 +1436,10 @@ class SessionStore {
     }
     game.status = 'published';
     this.persistCatalogGame(game, { publish: true });
-    return this.findGameById(id);
+    const storedGame = this.findGameById(id);
+    this.saveGameVersion(storedGame, 'published');
+    this.recordAdminAudit('game.published', 'game', storedGame.gameIdentificationNumber, { displayName: storedGame.displayName });
+    return storedGame;
   }
 
   simulateGameRtp(id, simulationOptions = {}) {
@@ -1272,7 +1447,10 @@ class SessionStore {
     if (!game) {
       return null;
     }
-    return simulateRtp(game.mathConfig, simulationOptions);
+    const simulation = simulateRtp(game.mathConfig, simulationOptions);
+    const run = this.storeRtpRun(game, simulationOptions, simulation);
+    this.recordAdminAudit('rtp.simulated', 'game', game.gameIdentificationNumber, { runId: run.id, versionLabel: run.versionLabel, spins: simulation.spins, rtp: simulation.rtp });
+    return { ...simulation, runId: run.id, versionLabel: run.versionLabel, createdAt: run.createdAt };
   }
 
   close() {
@@ -1667,122 +1845,153 @@ function handleCollect(request, session, game, sessionStore) {
   }, 'bet');
 }
 
-function createAdminPanelHtml({ versionedApiBase }) {
+function createAdminPanelHtml({ versionedApiBase, csrfToken }) {
   return `<!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ActionMoneySlot Admin</title>
-  <style>
-    body { font-family: sans-serif; margin: 2rem; background: #101522; color: #f6f7fb; }
-    textarea, input, select, button { font: inherit; margin: 0.25rem 0; width: 100%; }
-    section { border: 1px solid #2d3650; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; background: #151c2d; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
-    pre { white-space: pre-wrap; background: #0b1020; padding: 1rem; border-radius: 8px; overflow: auto; }
-  </style>
+  <title>ActionMoneySlot Admin Console</title>
+  <link rel="stylesheet" href="/app/admin.css" />
 </head>
 <body>
-  <h1>ActionMoneySlot Admin</h1>
-  <p>Motor propio para demostración. No es un casino real y no incluye pagos, KYC ni cumplimiento regulatorio.</p>
-  <div class="grid">
-    <section>
-      <h2>Juegos</h2>
-      <button id="load-games">Recargar catálogo</button>
-      <button id="duplicate-game">Duplicar juego 1</button>
-      <button id="publish-game">Publicar juego 1</button>
-      <pre id="games-output"></pre>
-    </section>
-    <section>
-      <h2>Configurar juego 1</h2>
-      <textarea id="game-config" rows="14">{ "displayName": "Original Action Money Slot", "status": "draft" }</textarea>
-      <button id="save-game-config">Guardar configuración</button>
-    </section>
-    <section>
-      <h2>Subir imagen</h2>
-      <input id="image-name" value="demo.png" />
-      <textarea id="image-content" rows="6">iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+s9xkAAAAASUVORK5CYII=</textarea>
-      <button id="upload-image">Subir</button>
-      <pre id="images-output"></pre>
-    </section>
-    <section>
-      <h2>RTP</h2>
-      <button id="simulate-rtp">Simular RTP juego 1</button>
-      <pre id="rtp-output"></pre>
-    </section>
-    <section>
-      <h2>API Keys</h2>
-      <input id="api-key-label" value="partner-demo" />
-      <button id="create-api-key">Crear API key</button>
-      <pre id="api-key-output"></pre>
-    </section>
+  <div class="shell">
+    <header>
+      <div>
+        <h1>ActionMoneySlot Admin Console</h1>
+        <p>Operate the original backend, custom frontend, catalog, RTP history, assets, and integration keys. This product remains a demo backend and does not implement real-money payments, KYC, AML, or regulated gaming compliance.</p>
+      </div>
+      <div class="actions">
+        <a href="/app/index.html" class="badge">Open custom frontend</a>
+        <a href="/legacy" class="badge">Open legacy frontend</a>
+        <button id="logout-button" type="button">Log out</button>
+      </div>
+    </header>
+    <main>
+      <aside class="sidebar">
+        <section class="panel">
+          <h2>Modules</h2>
+          <div class="nav-list">
+            <button data-nav-target="catalog" type="button">Catalog and editor</button>
+            <button data-nav-target="rtp" type="button">RTP and simulation history</button>
+            <button data-nav-target="assets" type="button">Images and assets</button>
+            <button data-nav-target="integrations" type="button">API keys</button>
+            <button data-nav-target="audit" type="button">Audit log</button>
+          </div>
+        </section>
+        <section class="panel">
+          <h2>Selected game</h2>
+          <label>
+            Game
+            <select id="game-select"></select>
+          </label>
+          <div class="actions">
+            <button id="load-games" type="button">Reload games</button>
+            <button id="create-game" type="button">Create draft</button>
+          </div>
+          <p class="notice">The editor keeps the legacy runtime compatible while the custom frontend becomes the primary entrypoint.</p>
+        </section>
+      </aside>
+      <section class="workspace">
+        <section class="panel" id="global-error-panel">
+          <strong>Status</strong>
+          <pre id="global-error">Ready.</pre>
+        </section>
+        <section class="panel" data-admin-section="catalog">
+          <div class="panel-header"><h2>Catalog and game editor</h2></div>
+          <div class="section-grid">
+            <label>Display name<input id="game-display-name" /></label>
+            <label>Internal game name<input id="game-name" /></label>
+            <label>Game type<input id="game-type" /></label>
+            <label>Engine type<input id="engine-type" /></label>
+            <label>Status<select id="game-status"><option value="draft">draft</option><option value="published">published</option></select></label>
+            <label>Layout mode<select id="layout-mode"><option value="lines">lines</option><option value="ways">ways</option></select></label>
+            <label>Reels<input id="layout-reels" type="number" min="3" /></label>
+            <label>Rows<input id="layout-rows" type="number" min="3" /></label>
+            <label>Bets (CSV)<input id="bets-input" /></label>
+            <label>Denominations (CSV)<input id="denominations-input" /></label>
+          </div>
+          <div class="section-grid">
+            <label>Free spin awards<textarea id="free-spins-input" rows="8"></textarea></label>
+            <label>Bonus awards<textarea id="bonus-awards-input" rows="8"></textarea></label>
+            <label>Paylines / ways source<textarea id="paylines-input" rows="10"></textarea></label>
+            <label>Reel strips<textarea id="reels-input" rows="10"></textarea></label>
+            <label>Symbols<textarea id="symbols-input" rows="10"></textarea></label>
+          </div>
+          <div class="actions">
+            <button id="duplicate-game" type="button">Duplicate</button>
+            <button id="save-game" type="button" class="primary">Save editor changes</button>
+            <button id="publish-game" type="button" class="good">Publish selected game</button>
+          </div>
+          <h3>Catalog</h3>
+          <div id="catalog-list" class="card-list"></div>
+          <h3>Version history</h3>
+          <div id="versions-list" class="card-list"></div>
+        </section>
+        <section class="panel hidden" data-admin-section="rtp">
+          <div class="panel-header"><h2>RTP and history</h2></div>
+          <div class="actions">
+            <label>Spins<input id="rtp-spins" type="number" min="100" value="5000" /></label>
+            <button id="run-rtp" type="button" class="primary">Run simulation</button>
+          </div>
+          <h3>Last result</h3>
+          <pre id="rtp-result">No simulation run yet.</pre>
+          <h3>Stored simulation history</h3>
+          <div id="rtp-history-list" class="card-list"></div>
+        </section>
+        <section class="panel hidden" data-admin-section="assets">
+          <div class="panel-header"><h2>Images and assets</h2></div>
+          <div class="section-grid">
+            <label>Image file<input id="image-file" type="file" accept="image/png,image/jpeg,image/gif,image/svg+xml" /></label>
+            <label>Description<input id="image-description" /></label>
+          </div>
+          <div class="actions"><button id="upload-image" type="button" class="primary">Upload image</button></div>
+          <div id="images-list" class="card-list"></div>
+        </section>
+        <section class="panel hidden" data-admin-section="integrations">
+          <div class="panel-header"><h2>Integration API keys</h2></div>
+          <div class="actions">
+            <label>Label<input id="api-key-label" value="partner-demo" /></label>
+            <button id="create-api-key" type="button" class="primary">Create API key</button>
+          </div>
+          <pre id="api-key-created">New API keys are shown only once.</pre>
+          <div id="api-keys-list" class="card-list"></div>
+        </section>
+        <section class="panel hidden" data-admin-section="audit">
+          <div class="panel-header"><h2>Audit log</h2></div>
+          <div id="audit-list" class="card-list"></div>
+        </section>
+      </section>
+    </main>
   </div>
   <script>
-    async function call(path, options = {}) {
-      const method = (options.method || 'GET').toUpperCase();
-      const csrfHeaders = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
-        ? { 'X-CSRF-Token': window.__ACTION_MONEY_SLOT_ADMIN_CSRF__ }
-        : {};
-      const response = await fetch(path, {
-        credentials: 'same-origin',
-        ...options,
-        headers: { 'Content-Type': 'application/json', ...csrfHeaders, ...(options.headers || {}) }
-      });
-      const text = await response.text();
-      try {
-        return JSON.parse(text);
-      } catch (error) {
-        return { raw: text, status: response.status };
-      }
-    }
-    document.getElementById('load-games').onclick = async () => {
-      document.getElementById('games-output').textContent = JSON.stringify(await call('${versionedApiBase}/admin/games'), null, 2);
-    };
-    document.getElementById('duplicate-game').onclick = async () => {
-      document.getElementById('games-output').textContent = JSON.stringify(await call('${versionedApiBase}/admin/games/1/duplicate', { method: 'POST' }), null, 2);
-    };
-    document.getElementById('publish-game').onclick = async () => {
-      document.getElementById('games-output').textContent = JSON.stringify(await call('${versionedApiBase}/admin/games/1/publish', { method: 'POST' }), null, 2);
-    };
-    document.getElementById('save-game-config').onclick = async () => {
-      const payload = JSON.parse(document.getElementById('game-config').value);
-      document.getElementById('games-output').textContent = JSON.stringify(await call('${versionedApiBase}/admin/games/1/config', { method: 'PUT', body: JSON.stringify(payload) }), null, 2);
-    };
-    document.getElementById('upload-image').onclick = async () => {
-      const payload = {
-        gameIdentificationNumber: 1,
-        fileName: document.getElementById('image-name').value,
-        mimeType: 'image/png',
-        contentBase64: document.getElementById('image-content').value
-      };
-      document.getElementById('images-output').textContent = JSON.stringify(await call('${versionedApiBase}/images', { method: 'POST', body: JSON.stringify(payload) }), null, 2);
-    };
-    document.getElementById('simulate-rtp').onclick = async () => {
-      document.getElementById('rtp-output').textContent = JSON.stringify(await call('${versionedApiBase}/games/1/rtp', { method: 'POST', body: JSON.stringify({ spins: 2000 }) }), null, 2);
-    };
-    document.getElementById('create-api-key').onclick = async () => {
-      document.getElementById('api-key-output').textContent = JSON.stringify(await call('${versionedApiBase}/api-keys', { method: 'POST', body: JSON.stringify({ label: document.getElementById('api-key-label').value }) }), null, 2);
-    };
+    window.__ACTION_MONEY_SLOT_ADMIN__ = ${JSON.stringify({ apiBase: versionedApiBase, csrfToken })};
   </script>
+  <script src="/app/admin.js"></script>
 </body>
 </html>`;
 }
 
 function createAdminLoginHtml() {
   return `<!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ActionMoneySlot Admin Login</title>
+  <link rel="stylesheet" href="/app/admin.css" />
 </head>
 <body>
-  <h1>ActionMoneySlot Admin</h1>
-  <form id="login-form">
+  <form class="login-box" id="login-form">
+    <h1>ActionMoneySlot Admin</h1>
+    <p>Sign in with <code>ACTION_MONEY_SLOT_ADMIN_TOKEN</code> to access catalog operations, RTP history, images, and integration keys.</p>
     <label>Admin token <input id="token" type="password" autocomplete="current-password" /></label>
-    <button type="submit">Entrar</button>
+    <div class="actions">
+      <button type="submit" class="primary">Enter console</button>
+      <a href="/app/index.html">Back to custom frontend</a>
+    </div>
+    <pre id="status">Awaiting credentials.</pre>
   </form>
-  <pre id="status"></pre>
   <script>
     document.getElementById('login-form').addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -1847,7 +2056,19 @@ function createBackend(options) {
 
   function getAdminSession(req) {
     const cookies = parseCookies(req.headers.cookie);
-    return cookies.ams_admin_session ? adminSessions.get(cookies.ams_admin_session) || null : null;
+    const sessionId = cookies.ams_admin_session;
+    if (!sessionId) {
+      return null;
+    }
+    const session = adminSessions.get(sessionId) || null;
+    if (!session) {
+      return null;
+    }
+    if ((Date.now() - session.createdAt) > ADMIN_SESSION_MAX_AGE_MS) {
+      adminSessions.delete(sessionId);
+      return null;
+    }
+    return session;
   }
 
   function createAdminSession() {
@@ -2145,6 +2366,25 @@ function createBackend(options) {
       return true;
     }
 
+    const gameRtpHistoryMatch = pathname.match(new RegExp(`^${versionedApiBasePattern}\\/games\\/(\\d+)\\/rtp\\/history$`));
+    if (gameRtpHistoryMatch) {
+      if (!requireAdmin(req, res, shouldSendBody)) {
+        return true;
+      }
+      if (!['GET', 'HEAD'].includes(req.method || 'GET')) {
+        res.setHeader('Allow', 'GET, HEAD');
+        sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
+        return true;
+      }
+      const game = sessionStore.findGameById(gameRtpHistoryMatch[1]);
+      if (!game) {
+        sendApiJson(res, 404, { error: 'Game not found.' }, shouldSendBody);
+        return true;
+      }
+      sendApiJson(res, 200, { gameIdentificationNumber: game.gameIdentificationNumber, runs: sessionStore.listRtpRuns(game.gameIdentificationNumber, query) }, shouldSendBody);
+      return true;
+    }
+
     if (pathname === `${versionedApiBase}/sessions`) {
       if (req.method === 'POST') {
         const payload = await readJsonBody(req);
@@ -2158,7 +2398,8 @@ function createBackend(options) {
         const session = sessionStore.createSession({ ...payload, gameIdentificationNumber: selectedGame.gameIdentificationNumber });
         sendApiJson(res, 201, {
           session: sanitizeSessionForApi(session, games),
-          launchUrl: buildLaunchUrl(session, selectedGame, apiBase)
+          launchUrl: buildLaunchUrl(session, selectedGame, apiBase),
+          legacyLaunchUrl: buildLegacyLaunchUrl(session, selectedGame, apiBase)
         }, shouldSendBody);
         return true;
       }
@@ -2182,7 +2423,8 @@ function createBackend(options) {
       const selectedGame = resolveGameSelection(publishedGames, { gameIdentificationNumber: session.selectedGameId }) || publishedGames[0];
       sendApiJson(res, 200, {
         session: sanitizeSessionForApi(session, publishedGames),
-        launchUrl: buildLaunchUrl(session, selectedGame, apiBase)
+        launchUrl: buildLaunchUrl(session, selectedGame, apiBase),
+        legacyLaunchUrl: buildLegacyLaunchUrl(session, selectedGame, apiBase)
       }, shouldSendBody);
       return true;
     }
@@ -2250,7 +2492,8 @@ function createBackend(options) {
       const updatedSession = sessionStore.setSelectedGame(sessionId, selectedGame.gameIdentificationNumber);
       sendApiJson(res, 200, {
         session: sanitizeSessionForApi(updatedSession, publishedGames),
-        launchUrl: buildLaunchUrl(updatedSession, selectedGame, apiBase)
+        launchUrl: buildLaunchUrl(updatedSession, selectedGame, apiBase),
+        legacyLaunchUrl: buildLegacyLaunchUrl(updatedSession, selectedGame, apiBase)
       }, shouldSendBody);
       return true;
     }
@@ -2467,6 +2710,38 @@ function createBackend(options) {
       return true;
     }
 
+    const adminVersionsMatch = pathname.match(new RegExp(`^${versionedApiBasePattern}\\/admin\\/games\\/(\\d+)\\/versions$`));
+    if (adminVersionsMatch) {
+      if (!requireAdmin(req, res, shouldSendBody)) {
+        return true;
+      }
+      if (!['GET', 'HEAD'].includes(req.method || 'GET')) {
+        res.setHeader('Allow', 'GET, HEAD');
+        sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
+        return true;
+      }
+      const game = sessionStore.findGameById(adminVersionsMatch[1]);
+      if (!game) {
+        sendApiJson(res, 404, { error: 'Game not found.' }, shouldSendBody);
+        return true;
+      }
+      sendApiJson(res, 200, { gameIdentificationNumber: game.gameIdentificationNumber, versions: sessionStore.listGameVersions(game.gameIdentificationNumber) }, shouldSendBody);
+      return true;
+    }
+
+    if (pathname === `${versionedApiBase}/admin/audit`) {
+      if (!requireAdmin(req, res, shouldSendBody)) {
+        return true;
+      }
+      if (!['GET', 'HEAD'].includes(req.method || 'GET')) {
+        res.setHeader('Allow', 'GET, HEAD');
+        sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
+        return true;
+      }
+      sendApiJson(res, 200, { entries: sessionStore.listAdminAudit(query) }, shouldSendBody);
+      return true;
+    }
+
     return false;
   }
 
@@ -2521,7 +2796,7 @@ function createBackend(options) {
         'Cache-Control': 'no-store',
         'Content-Type': 'text/html; charset=utf-8'
       });
-      res.end(shouldSendBody ? createAdminPanelHtml({ versionedApiBase }).replace('</body>', `<script>window.__ACTION_MONEY_SLOT_ADMIN_CSRF__=${JSON.stringify(session.csrfToken)};</script></body>`) : undefined);
+      res.end(shouldSendBody ? createAdminPanelHtml({ versionedApiBase, csrfToken: session.csrfToken }) : undefined);
       return true;
     },
     handleUpgrade(req, socket, head) {

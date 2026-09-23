@@ -102,6 +102,63 @@ function buildDefaultMathConfig(overrides = {}) {
   });
 }
 
+function ensurePositiveSeries(name, values) {
+  if (!Array.isArray(values) || !values.length) {
+    throw new Error(`${name} must contain at least one value.`);
+  }
+  values.forEach((value) => {
+    if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
+      throw new Error(`${name} entries must be positive numbers.`);
+    }
+  });
+}
+
+function validateMathConfig(config) {
+  if (!Array.isArray(config.symbols) || !config.symbols.length) {
+    throw new Error('Math config must define at least one symbol.');
+  }
+  const symbolIds = new Set(config.symbols.map((symbol) => symbol.id));
+  if (symbolIds.size !== config.symbols.length) {
+    throw new Error('Symbol ids must be unique.');
+  }
+  [config.wildSymbolId, config.scatterSymbolId, config.bonusSymbolId].forEach((symbolId) => {
+    if (!symbolIds.has(symbolId)) {
+      throw new Error(`Referenced symbol ${symbolId} is missing from symbols.`);
+    }
+  });
+  if (!Array.isArray(config.reels) || config.reels.length !== config.layout.reels) {
+    throw new Error('Reel strips must match the configured reel count.');
+  }
+  config.reels.forEach((strip, index) => {
+    if (!Array.isArray(strip) || !strip.length) {
+      throw new Error(`Reel ${index} must contain at least one symbol.`);
+    }
+    strip.forEach((symbolId) => {
+      if (!symbolIds.has(symbolId)) {
+        throw new Error(`Reel ${index} references unknown symbol ${symbolId}.`);
+      }
+    });
+  });
+  ensurePositiveSeries('Denominations', config.denominations);
+  ensurePositiveSeries('Bets', config.bets);
+  if (config.layout.mode === 'lines') {
+    if (!Array.isArray(config.layout.paylines) || !config.layout.paylines.length) {
+      throw new Error('Line mode requires at least one payline.');
+    }
+    config.layout.paylines.forEach((line, lineIndex) => {
+      if (!Array.isArray(line) || line.length !== config.layout.reels) {
+        throw new Error(`Payline ${lineIndex} must contain exactly ${config.layout.reels} positions.`);
+      }
+      line.forEach((rowIndex) => {
+        if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= config.layout.rows) {
+          throw new Error(`Payline ${lineIndex} contains an invalid row index.`);
+        }
+      });
+    });
+  }
+  return config;
+}
+
 function normalizeMathConfig(config = {}) {
   const layout = config.layout || {};
   const reels = Array.isArray(config.reels) && config.reels.length ? clone(config.reels) : clone(DEFAULT_REELS);
@@ -111,7 +168,7 @@ function normalizeMathConfig(config = {}) {
     ? layout.paylines.map((line) => line.map((value) => normalizeNumber(value, 0)))
     : clone(DEFAULT_PAYLINES);
   const symbols = Array.isArray(config.symbols) && config.symbols.length ? clone(config.symbols) : clone(DEFAULT_SYMBOLS);
-  return {
+  return validateMathConfig({
     id: String(config.id || 'original-action-money-slot'),
     displayName: String(config.displayName || 'Original Action Money Slot'),
     engineVersion: String(config.engineVersion || '1.0.0'),
@@ -137,7 +194,7 @@ function normalizeMathConfig(config = {}) {
       multiplier: normalizeNumber(value.multiplier, 0),
       respins: normalizeNumber(value.respins, 0)
     }]))
-  };
+  });
 }
 
 function getVisibleGrid(config, state) {
@@ -393,6 +450,9 @@ function simulateRtp(configInput, simulationOptions = {}) {
     freeSpinTriggers: 0
   };
   let currentState = {};
+  let mean = 0;
+  let m2 = 0;
+  let observations = 0;
   for (let spinIndex = 0; spinIndex < spins; spinIndex += 1) {
     const result = spin(config, state, {
       previousState: currentState,
@@ -411,10 +471,27 @@ function simulateRtp(configInput, simulationOptions = {}) {
     if (result.freeSpinsAwarded > 0) {
       metrics.freeSpinTriggers += 1;
     }
+    const returnRatio = result.totalBet > 0 ? result.totalWin / result.totalBet : 0;
+    observations += 1;
+    const delta = returnRatio - mean;
+    mean += delta / observations;
+    m2 += delta * (returnRatio - mean);
     currentState = result.currentState;
   }
+  const variance = observations > 1 ? m2 / (observations - 1) : 0;
+  const standardDeviation = Math.sqrt(Math.max(0, variance));
+  const standardError = observations > 0 ? standardDeviation / Math.sqrt(observations) : 0;
+  const confidence95 = {
+    low: Math.max(0, mean - (1.96 * standardError)),
+    high: mean + (1.96 * standardError)
+  };
   return {
     ...metrics,
+    seed: simulationOptions.seed === undefined ? null : serializeSeed(simulationOptions.seed),
+    averageReturn: mean,
+    variance,
+    standardDeviation,
+    confidence95,
     rtp: metrics.totalBet ? metrics.totalWin / metrics.totalBet : 0,
     hitRate: metrics.hitCount / spins,
     bonusRate: metrics.bonusCount / spins,
@@ -428,6 +505,7 @@ module.exports = {
   createRngState,
   createSeed,
   normalizeMathConfig,
+  validateMathConfig,
   randomFloat,
   randomInt,
   serializeSeed,

@@ -1,6 +1,6 @@
 # ActionMoneySlot
 
-Backend propio y original para demo de slot, compatible con el frontend EGT existente sin copiar ni reutilizar matemática propietaria.
+Backend y frontend propios para demo de slot, con compatibilidad temporal para el frontend EGT legado sin copiar ni reutilizar matemática propietaria.
 
 > Este proyecto **no es un casino real**. No incluye pagos, retiros, KYC, AML ni cumplimiento regulatorio.
 
@@ -8,12 +8,13 @@ Backend propio y original para demo de slot, compatible con el frontend EGT exis
 
 `npm start` levanta un único servicio Node.js que:
 
-- sirve el frontend actual en `/ActionMoneyEGT`
+- sirve el frontend propio en `/app` y lo expone como entrada principal en `/`
+- mantiene el frontend EGT legado en `/ActionMoneyEGT` y `/legacy` durante la transición
 - mantiene compatibilidad con el bridge WebSocket existente en `/` y `/ws`
 - conserva la API heredada en `/api`
 - expone la API versionada en `/api/v1`
 - persiste sesiones, juegos, spins, imágenes y API keys en SQLite usando `node:sqlite`
-- incluye un panel administrativo protegido en `/admin`
+- incluye una consola administrativa protegida en `/admin` con catálogo, RTP, assets, auditoría y API keys
 - ejecuta un motor matemático propio configurable con historial auditable de seeds y resultados
 
 ## Requisitos
@@ -35,6 +36,12 @@ Abrir:
 http://localhost:8080
 ```
 
+Frontend propio:
+
+```text
+http://localhost:8080/app
+```
+
 Panel admin:
 
 ```text
@@ -52,9 +59,9 @@ Flujo:
 
 ### Servidor
 
-- `scripts/start-server.js`: HTTP server, static files, `/runtime-config.js`, `/health`, `/admin`
+- `scripts/start-server.js`: HTTP server, `/app`, `/legacy`, static files, `/runtime-config.js`, `/health`, `/admin`
 - `scripts/original-backend-core.js`: REST, WebSocket, SQLite, catálogo, sesiones, auditoría y administración
-- `scripts/original-slot-engine.js`: motor matemático configurable, RNG server-side, free spins, bonus, respins y simulación RTP
+- `scripts/original-slot-engine.js`: motor matemático configurable, RNG server-side, validación de configuración, free spins, bonus, respins y simulación RTP con métricas de confianza
 
 ### Persistencia SQLite
 
@@ -69,15 +76,19 @@ Tablas principales:
 - `sessions`
 - `session_games`
 - `game_catalog`
+- `game_versions`
 - `spin_history`
+- `rtp_runs`
 - `images`
 - `api_keys`
+- `admin_audit_log`
 
 ## Compatibilidad
 
-- `/api` sigue funcionando para no romper el backend/frontend actual
+- `/api` sigue funcionando para no romper integraciones existentes
 - `/api/v1` expone la versión documentada nueva
 - `/` y `/ws` siguen aceptando el handshake WebSocket legado del runtime
+- `/legacy` conserva el arranque EGT existente mientras `/app` pasa a ser la UI principal
 - `runtime-config.js` sigue publicando `tcpHost`, `tcpPort`, `sslHost`, `apiBase`, `token` y `sessionId`
 
 ## API REST `/api/v1`
@@ -88,6 +99,7 @@ Tablas principales:
 - `GET /api/v1/games/:gameId`
 - `GET /api/v1/games/:gameId/config`
 - `GET|POST /api/v1/games/:gameId/rtp`
+- `GET /api/v1/games/:gameId/rtp/history` `admin`
 
 ### Sesiones
 
@@ -119,6 +131,8 @@ Tablas principales:
 - `POST /api/v1/admin/games/:gameId/duplicate` `X-Admin-Token`
 - `PUT /api/v1/admin/games/:gameId/config` `X-Admin-Token`
 - `POST /api/v1/admin/games/:gameId/publish` `X-Admin-Token`
+- `GET /api/v1/admin/games/:gameId/versions` `X-Admin-Token`
+- `GET /api/v1/admin/audit` `X-Admin-Token`
 
 ## WebSocket
 
@@ -176,6 +190,12 @@ Características implementadas:
 - historial de seeds, apuestas y resultados en `spin_history`
 - simulación de RTP por API
 
+## Frontend propio
+
+- `/app/index.html` implementa lobby, selección de juego, conexión WebSocket, spin y visualización de resultados sin reutilizar `Game.min.js` ni assets visuales propietarios
+- `/legacy` sigue redirigiendo al bundle EGT existente para compatibilidad temporal
+- los `launchUrl` públicos apuntan al frontend propio y además devuelven `legacyLaunchUrl` para migraciones controladas
+
 ## Seguridad y administración
 
 ### Token admin
@@ -184,7 +204,7 @@ Variable:
 
 - `ACTION_MONEY_SLOT_ADMIN_TOKEN`
 
-Si no se configura, las rutas administrativas quedan deshabilitadas.
+Si no se configura, las rutas administrativas quedan deshabilitadas. Las sesiones admin expiran automáticamente.
 
 Cabecera:
 
@@ -196,7 +216,7 @@ Cabecera:
 
 - `X-API-Key: <token>`
 
-Las API keys se almacenan con hash salado usando `scrypt` y solo se muestran completas al crearse.
+Las API keys se almacenan con hash salado usando `scrypt` y solo se muestran completas al crearse. Las altas y revocaciones quedan registradas en auditoría.
 
 ## Variables de entorno
 
@@ -223,17 +243,19 @@ Las API keys se almacenan con hash salado usando `scrypt` y solo se muestran com
 - salud del servidor
 - REST heredado `/api`
 - REST versionado `/api/v1`
-- panel admin
+- frontend propio `/app` y compatibilidad `/legacy`
+- consola admin
 - API keys
 - imágenes
-- duplicado/publicación de juegos
+- duplicado/publicación/versionado de juegos
+- historial RTP y auditoría admin
 - WebSocket legado y comandos nuevos
-- motor, bonus, free spins y simulación RTP
+- motor, bonus, free spins, validación matemática y simulación RTP
 - persistencia de saldo e historial de spins
 
 ## Limitaciones
 
-- El frontend visual sigue siendo el paquete EGT existente; este cambio sustituye backend y matemática, no assets.
-- El panel admin es funcional pero deliberadamente simple.
-- La simulación RTP es Monte Carlo y no una certificación formal.
-- No se implementan pagos reales, geofencing, compliance ni reporting regulatorio.
+- `/legacy` sigue dependiendo del bundle EGT solo como ruta de compatibilidad temporal.
+- La simulación RTP sigue siendo Monte Carlo; ahora guarda histórico y métricas, pero no sustituye una certificación formal.
+- No se implementan pagos reales, geofencing, KYC, AML, compliance ni reporting regulatorio.
+- El editor admin ya separa módulos operativos, pero algunas estructuras avanzadas (por ejemplo, símbolos y paylines complejos) siguen editándose en formato estructurado.

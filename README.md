@@ -196,7 +196,7 @@ Cabecera:
 
 - `X-API-Key: <token>`
 
-Las API keys se almacenan hasheadas con SHA-256 y solo se muestran completas al crearse.
+Las API keys se almacenan con hash salado usando `scrypt` y solo se muestran completas al crearse.
 
 ## Variables de entorno
 

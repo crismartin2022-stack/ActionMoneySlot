@@ -1967,6 +1967,10 @@ function createBackend(options) {
     return sessionStore.games;
   }
 
+  function getPublishedGames() {
+    return getGames().filter((game) => game.status === 'published');
+  }
+
   webSocketServer.on('connection', (ws) => {
     sockets.add(ws);
     ws.send('1::');
@@ -1991,12 +1995,12 @@ function createBackend(options) {
         return;
       }
 
-      const games = getGames();
+      const games = getPublishedGames();
       const requestedGameId = request.gameIdentificationNumber;
       const game = requestedGameId === undefined || requestedGameId === null
         ? resolveGameSelection(games, { gameIdentificationNumber: session.selectedGameId }) || games[0]
         : sessionStore.findGameById(requestedGameId);
-      if (!game) {
+      if (!game || game.status !== 'published') {
         writeJsonFrame(ws, buildFailureResponse(request, `Unknown gameIdentificationNumber: ${requestedGameId}`));
         return;
       }
@@ -2072,6 +2076,7 @@ function createBackend(options) {
 
   async function handleVersionedApiRequest(req, res, pathname, shouldSendBody, query, routeOptions = {}) {
     const games = getGames();
+    const publishedGames = getPublishedGames();
 
     if (pathname === `${versionedApiBase}/games`) {
       if (!['GET', 'HEAD'].includes(req.method || 'GET')) {
@@ -2080,13 +2085,18 @@ function createBackend(options) {
         return true;
       }
       const demoSession = sessionStore.ensureSession('demo-session');
-      sendApiJson(res, 200, { games: games.map((game) => buildGameCatalogEntry(game, demoSession, apiBase, versionedApiBase)) }, shouldSendBody);
+      sendApiJson(res, 200, { games: publishedGames.map((game) => buildGameCatalogEntry(game, demoSession, apiBase, versionedApiBase)) }, shouldSendBody);
       return true;
     }
 
     const gameDetailsMatch = pathname.match(new RegExp(`^${versionedApiBasePattern}\\/games\\/(\\d+)$`));
     if (gameDetailsMatch) {
-      const game = sessionStore.findGameById(gameDetailsMatch[1]);
+      if (!['GET', 'HEAD'].includes(req.method || 'GET')) {
+        res.setHeader('Allow', 'GET, HEAD');
+        sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
+        return true;
+      }
+      const game = publishedGames.find((entry) => entry.gameIdentificationNumber === Number(gameDetailsMatch[1]));
       if (!game) {
         sendApiJson(res, 404, { error: 'Game not found.' }, shouldSendBody);
         return true;
@@ -2098,7 +2108,12 @@ function createBackend(options) {
 
     const gameConfigMatch = pathname.match(new RegExp(`^${versionedApiBasePattern}\\/games\\/(\\d+)\\/config$`));
     if (gameConfigMatch) {
-      const game = sessionStore.findGameById(gameConfigMatch[1]);
+      if (!['GET', 'HEAD'].includes(req.method || 'GET')) {
+        res.setHeader('Allow', 'GET, HEAD');
+        sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
+        return true;
+      }
+      const game = publishedGames.find((entry) => entry.gameIdentificationNumber === Number(gameConfigMatch[1]));
       if (!game) {
         sendApiJson(res, 404, { error: 'Game not found.' }, shouldSendBody);
         return true;
@@ -2134,8 +2149,8 @@ function createBackend(options) {
       if (req.method === 'POST') {
         const payload = await readJsonBody(req);
         const selectedGame = hasGameSelectionInput(payload)
-          ? resolveGameSelection(games, payload, { allowDefault: false })
-          : resolveGameSelection(games, payload);
+          ? resolveGameSelection(publishedGames, payload, { allowDefault: false })
+          : resolveGameSelection(publishedGames, payload);
         if (!selectedGame) {
           sendApiJson(res, 400, { error: 'Game selection is invalid.' }, shouldSendBody);
           return true;
@@ -2148,7 +2163,7 @@ function createBackend(options) {
         return true;
       }
       if (['GET', 'HEAD'].includes(req.method || 'GET')) {
-        sendApiJson(res, 200, { sessions: sessionStore.listSessions().map((session) => sanitizeSessionForApi(session, games)) }, shouldSendBody);
+        sendApiJson(res, 200, { sessions: sessionStore.listSessions().map((session) => sanitizeSessionForApi(session, publishedGames)) }, shouldSendBody);
         return true;
       }
       res.setHeader('Allow', 'GET, HEAD, POST');
@@ -2164,9 +2179,9 @@ function createBackend(options) {
         sendApiJson(res, 404, { error: 'Session not found.' }, shouldSendBody);
         return true;
       }
-      const selectedGame = resolveGameSelection(games, { gameIdentificationNumber: session.selectedGameId }) || games[0];
+      const selectedGame = resolveGameSelection(publishedGames, { gameIdentificationNumber: session.selectedGameId }) || publishedGames[0];
       sendApiJson(res, 200, {
-        session: sanitizeSessionForApi(session, games),
+        session: sanitizeSessionForApi(session, publishedGames),
         launchUrl: buildLaunchUrl(session, selectedGame, apiBase)
       }, shouldSendBody);
       return true;
@@ -2207,7 +2222,7 @@ function createBackend(options) {
       }
       const nextBalance = hasBalance ? Number(payload.balance) : session.balance + Number(payload.amount);
       const updated = sessionStore.updateBalance(sessionId, nextBalance);
-      sendApiJson(res, 200, { session: sanitizeSessionForApi(updated, games) }, shouldSendBody);
+      sendApiJson(res, 200, { session: sanitizeSessionForApi(updated, publishedGames) }, shouldSendBody);
       return true;
     }
 
@@ -2226,15 +2241,15 @@ function createBackend(options) {
       }
       const payload = await readJsonBody(req);
       const selectedGame = hasGameSelectionInput(payload)
-        ? resolveGameSelection(games, payload, { allowDefault: false })
-        : resolveGameSelection(games, payload);
+        ? resolveGameSelection(publishedGames, payload, { allowDefault: false })
+        : resolveGameSelection(publishedGames, payload);
       if (!selectedGame) {
         sendApiJson(res, 400, { error: 'Game selection is invalid.' }, shouldSendBody);
         return true;
       }
       const updatedSession = sessionStore.setSelectedGame(sessionId, selectedGame.gameIdentificationNumber);
       sendApiJson(res, 200, {
-        session: sanitizeSessionForApi(updatedSession, games),
+        session: sanitizeSessionForApi(updatedSession, publishedGames),
         launchUrl: buildLaunchUrl(updatedSession, selectedGame, apiBase)
       }, shouldSendBody);
       return true;

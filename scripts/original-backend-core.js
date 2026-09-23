@@ -1327,7 +1327,8 @@ class SessionStore {
   storeRtpRun(game, simulationOptions, simulation) {
     const now = new Date().toISOString();
     const runId = crypto.randomUUID();
-    const versionLabel = `${game.displayName}@${game.status}`;
+    const latestVersion = this.statements.selectLatestGameVersion.get(Number(game.gameIdentificationNumber));
+    const versionLabel = latestVersion ? latestVersion.version_label : `${game.displayName}@${game.status}`;
     this.statements.insertRtpRun.run(
       runId,
       game.gameIdentificationNumber,

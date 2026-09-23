@@ -129,7 +129,12 @@
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'game-card' + (state.selectedGame && state.selectedGame.gameIdentificationNumber === game.gameIdentificationNumber ? ' active' : '');
-      button.innerHTML = '<strong>' + game.displayName + '</strong><small>' + game.gameType + ' · ' + game.status + '</small>';
+      const title = document.createElement('strong');
+      title.textContent = game.displayName;
+      const meta = document.createElement('small');
+      meta.textContent = game.gameType + ' · ' + game.status;
+      button.appendChild(title);
+      button.appendChild(meta);
       button.addEventListener('click', async function () {
         await request(versionedApiBase + '/sessions/' + encodeURIComponent(state.session.id) + '/select-game', {
           method: 'POST',
@@ -289,7 +294,13 @@
       const text = String(event.data || '');
       if (text === '1::') return;
       const normalized = text.indexOf(':::') === 0 ? text.slice(3) : text;
-      const payload = JSON.parse(normalized);
+      let payload;
+      try {
+        payload = JSON.parse(normalized);
+      } catch (error) {
+        elements.transportLog.textContent = 'Unsupported socket frame: ' + normalized;
+        return;
+      }
       const pending = state.socketQueue.get(payload.messageId);
       if (pending) {
         state.socketQueue.delete(payload.messageId);
@@ -350,7 +361,15 @@
     const catalog = await request(versionedApiBase + '/games');
     state.games = catalog.games || [];
     await ensureSession();
-    state.selectedGame = state.games.find((game) => game.gameIdentificationNumber === state.session.selectedGameId) || state.games[0] || null;
+    const requestedGameId = Number(queryParam('gameIdentificationNumber') || 0);
+    if (requestedGameId && state.session && requestedGameId !== state.session.selectedGameId) {
+      await request(versionedApiBase + '/sessions/' + encodeURIComponent(state.session.id) + '/select-game', {
+        method: 'POST',
+        body: JSON.stringify({ gameIdentificationNumber: requestedGameId })
+      });
+      state.session.selectedGameId = requestedGameId;
+    }
+    state.selectedGame = state.games.find((game) => game.gameIdentificationNumber === state.session.selectedGameId) || state.games.find((game) => game.gameIdentificationNumber === requestedGameId) || state.games[0] || null;
     renderLobby();
     renderGameMeta();
     renderBalance();

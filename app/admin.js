@@ -89,7 +89,15 @@
   function card(title, subtitle, bodyText) {
     const node = document.createElement('article');
     node.className = 'item-card';
-    node.innerHTML = '<h4>' + title + '</h4><small>' + subtitle + '</small><pre>' + bodyText + '</pre>';
+    const heading = document.createElement('h4');
+    heading.textContent = title;
+    const meta = document.createElement('small');
+    meta.textContent = subtitle;
+    const body = document.createElement('pre');
+    body.textContent = bodyText;
+    node.appendChild(heading);
+    node.appendChild(meta);
+    node.appendChild(body);
     return node;
   }
 
@@ -179,15 +187,17 @@
   async function runRtp() {
     const game = getSelectedGame();
     if (!game) return;
-    const paylineSource = JSON.parse(document.getElementById('paylines-input').value || '[]');
-    const layoutMode = document.getElementById('layout-mode').value;
+    const savedMath = game.mathConfig || {};
+    const savedLayout = savedMath.layout || {};
+    const savedBets = (game.settings && game.settings.bets) || savedMath.bets || [1];
+    const savedDenominations = savedMath.denominations || [1];
     const simulationPayload = {
       spins: Number(document.getElementById('rtp-spins').value),
-      denomination: Number(document.getElementById('denominations-input').value.split(',')[0].trim() || 1),
-      betPerLine: Number(document.getElementById('bets-input').value.split(',')[0].trim() || 1)
+      denomination: Number(savedDenominations[0] || 1),
+      betPerLine: Number(savedBets[0] || 1)
     };
-    if (layoutMode !== 'ways') {
-      simulationPayload.lines = Math.max(1, Array.isArray(paylineSource) ? paylineSource.length : 1);
+    if ((savedLayout.mode || 'lines') !== 'ways') {
+      simulationPayload.lines = Math.max(1, Array.isArray(savedLayout.paylines) ? savedLayout.paylines.length : 1);
     }
     const payload = await call(config.apiBase + '/games/' + game.gameIdentificationNumber + '/rtp', {
       method: 'POST',

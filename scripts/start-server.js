@@ -8,7 +8,10 @@ const PORT = normalizePort(process.env.PORT, 8080);
 const ROOT = path.resolve(__dirname, '..');
 const STATIC_ROUTE_PREFIX = '/ActionMoneyEGT';
 const STATIC_ROOT = path.join(ROOT, 'ActionMoneyEGT');
-const DEFAULT_ENTRYPOINT = '/ActionMoneyEGT/html5/index.html';
+const APP_ROUTE_PREFIX = '/app';
+const APP_ROOT = path.join(ROOT, 'app');
+const LEGACY_ENTRYPOINT = '/ActionMoneyEGT/html5/index.html';
+const DEFAULT_ENTRYPOINT = '/app/index.html';
 
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -223,6 +226,25 @@ function decodeRequestPath(requestPath) {
   };
 }
 
+function resolveMountedPath(cleanPath, routePrefix, rootPath) {
+  if (cleanPath !== routePrefix && !cleanPath.startsWith(`${routePrefix}/`)) {
+    return null;
+  }
+  const relativeRequestPath = cleanPath === routePrefix
+    ? ''
+    : cleanPath.slice(routePrefix.length + 1);
+  const normalizedPath = path.resolve(rootPath, relativeRequestPath || '.');
+  const relativeToRoot = path.relative(rootPath, normalizedPath);
+  if (
+    relativeToRoot === '..'
+    || relativeToRoot.startsWith(`..${path.sep}`)
+    || path.isAbsolute(relativeToRoot)
+  ) {
+    return { error: 403 };
+  }
+  return { filePath: normalizedPath };
+}
+
 function resolveRequestPath(cleanPath) {
   if (cleanPath === '/') {
     return {
@@ -230,34 +252,36 @@ function resolveRequestPath(cleanPath) {
     };
   }
 
-  if (cleanPath === STATIC_ROUTE_PREFIX) {
+  if (cleanPath === '/legacy') {
+    return {
+      redirect: LEGACY_ENTRYPOINT
+    };
+  }
+
+  if (cleanPath === APP_ROUTE_PREFIX) {
     return {
       redirect: DEFAULT_ENTRYPOINT
     };
   }
 
-  if (!cleanPath.startsWith(`${STATIC_ROUTE_PREFIX}/`)) {
+  if (cleanPath === STATIC_ROUTE_PREFIX) {
     return {
-      error: 404
+      redirect: LEGACY_ENTRYPOINT
     };
   }
 
-  const relativeRequestPath = cleanPath.slice(STATIC_ROUTE_PREFIX.length + 1);
-  const normalizedPath = path.resolve(STATIC_ROOT, relativeRequestPath || '.');
-  const relativeToStaticRoot = path.relative(STATIC_ROOT, normalizedPath);
+  const appPath = resolveMountedPath(cleanPath, APP_ROUTE_PREFIX, APP_ROOT);
+  if (appPath) {
+    return appPath;
+  }
 
-  if (
-    relativeToStaticRoot === '..'
-    || relativeToStaticRoot.startsWith(`..${path.sep}`)
-    || path.isAbsolute(relativeToStaticRoot)
-  ) {
-    return {
-      error: 403
-    };
+  const staticPath = resolveMountedPath(cleanPath, STATIC_ROUTE_PREFIX, STATIC_ROOT);
+  if (staticPath) {
+    return staticPath;
   }
 
   return {
-    filePath: normalizedPath
+    error: 404
   };
 }
 
@@ -323,6 +347,7 @@ function createServer(options) {
       sendJson(res, 200, {
         ok: true,
         entrypoint: DEFAULT_ENTRYPOINT,
+        legacyEntrypoint: LEGACY_ENTRYPOINT,
         apiBase: runtimeConfig.apiBase,
         versionedApiBase: backend.versionedApiBase,
         games: backend.games.map((game) => ({
@@ -450,7 +475,7 @@ function startServer() {
 
   server.listen(PORT, HOST, () => {
     console.log(
-      `ActionMoneySlot server listening on http://${HOST}:${PORT} -> ${DEFAULT_ENTRYPOINT}`
+      `ActionMoneySlot server listening on http://${HOST}:${PORT} -> ${DEFAULT_ENTRYPOINT} (legacy: ${LEGACY_ENTRYPOINT})`
     );
   });
 
@@ -458,7 +483,9 @@ function startServer() {
 }
 
 module.exports = {
+  APP_ROUTE_PREFIX,
   DEFAULT_ENTRYPOINT,
+  LEGACY_ENTRYPOINT,
   HOST,
   PORT,
   buildRuntimeConfig,

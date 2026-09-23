@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ActionMoneySlot App</title>
+  <link rel="stylesheet" href="/app/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Original demo frontend</p>
+        <h1>ActionMoneySlot</h1>
+        <p class="subtitle">Custom frontend for the original backend. No proprietary EGT visuals or real-money features.</p>
+      </div>
+      <div class="status-card">
+        <div><span>Session</span><strong id="session-id">—</strong></div>
+        <div><span>Balance</span><strong id="balance">0</strong></div>
+        <div><span>Connection</span><strong id="connection-status">offline</strong></div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel lobby-panel">
+        <div class="panel-header">
+          <h2>Lobby</h2>
+          <button id="refresh-games" type="button">Refresh</button>
+        </div>
+        <div id="game-list" class="game-list"></div>
+        <div class="links">
+          <a href="/legacy" target="_blank" rel="noreferrer">Open legacy frontend</a>
+          <a href="/admin" target="_blank" rel="noreferrer">Open admin console</a>
+        </div>
+      </aside>
+
+      <section class="panel game-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Selected game</p>
+            <h2 id="selected-game-name">—</h2>
+          </div>
+          <div class="feature-pills">
+            <span id="mode-pill" class="pill">mode</span>
+            <span id="version-pill" class="pill">v1</span>
+          </div>
+        </div>
+
+        <div id="reels" class="reels" role="status" aria-live="polite" aria-label="Slot reel results"></div>
+
+        <div class="control-grid">
+          <label>
+            Bet per line
+            <select id="bet-select"></select>
+          </label>
+          <label>
+            Denomination
+            <select id="denomination-select"></select>
+          </label>
+          <label>
+            Lines / ways
+            <select id="lines-select"></select>
+          </label>
+          <label>
+            Session action
+            <select id="session-action">
+              <option value="spin">Spin</option>
+              <option value="balance">Refresh balance</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="connect-button" type="button">Connect</button>
+          <button id="spin-button" type="button" class="primary">Spin</button>
+        </div>
+
+        <div class="summary-grid">
+          <article class="summary-card">
+            <h3>Last result</h3>
+            <dl>
+              <div><dt>Total bet</dt><dd id="last-total-bet">0</dd></div>
+              <div><dt>Total win</dt><dd id="last-total-win">0</dd></div>
+              <div><dt>Free spins</dt><dd id="last-free-spins">0</dd></div>
+              <div><dt>Bonus</dt><dd id="last-bonus">—</dd></div>
+            </dl>
+          </article>
+          <article class="summary-card">
+            <h3>Transport + audit</h3>
+            <pre id="transport-log">Waiting for events…</pre>
+          </article>
+        </div>
+      </section>
+
+      <aside class="panel history-panel">
+        <div class="panel-header">
+          <h2>Client history</h2>
+          <button id="clear-history" type="button">Clear</button>
+        </div>
+        <ol id="client-history" class="history-list"></ol>
+      </aside>
+    </main>
+  </div>
+
+  <script src="/runtime-config.js"></script>
+  <script src="/app/app.js"></script>
+</body>
+</html>

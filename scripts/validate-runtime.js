@@ -22,6 +22,7 @@ const {
 } = require('./original-slot-engine');
 const {
   DEFAULT_ENTRYPOINT,
+  LEGACY_ENTRYPOINT,
   buildRuntimeConfig,
   createServer,
   inferSameOriginRuntimeConfig
@@ -326,6 +327,7 @@ async function main() {
     assert(health.body.includes('"ok":true'));
     assert(health.body.includes('"apiBase":"/api"'));
     assert(health.body.includes('"versionedApiBase":"/api/v1"'));
+    assert(health.body.includes('"legacyEntrypoint":"/ActionMoneyEGT/html5/index.html"'));
 
     const root = await httpRequest(port, '/');
     assert.strictEqual(root.statusCode, 302);
@@ -333,7 +335,15 @@ async function main() {
 
     const entrypoint = await httpRequest(port, DEFAULT_ENTRYPOINT);
     assert.strictEqual(entrypoint.statusCode, 200);
-    assert(entrypoint.body.includes('<title>ActionMoneySlot</title>'));
+    assert(entrypoint.body.includes('<title>ActionMoneySlot App</title>'));
+
+    const legacyEntrypoint = await httpRequest(port, '/legacy');
+    assert.strictEqual(legacyEntrypoint.statusCode, 302);
+    assert.strictEqual(legacyEntrypoint.headers.location, LEGACY_ENTRYPOINT);
+
+    const legacyPage = await httpRequest(port, LEGACY_ENTRYPOINT);
+    assert.strictEqual(legacyPage.statusCode, 200);
+    assert(legacyPage.body.includes('<title>ActionMoneySlot</title>'));
 
     const traversal = await httpRequest(port, '/ActionMoneyEGT/%2e%2e/package.json');
     assert.strictEqual(traversal.statusCode, 403);
@@ -355,8 +365,10 @@ async function main() {
     assert.strictEqual(gamesPayload.games[0].gameType, 'AMJSlot');
     assert.strictEqual(gamesPayload.games[0].settings.numReels, 5);
     assert.strictEqual(gamesPayload.games[0].settings.wildIndex, 8);
+    assert(gamesPayload.games[0].launchUrl.startsWith('/app/index.html?'));
     assert(gamesPayload.games[0].launchUrl.includes('apiBase=%2Fapi'));
     assert(gamesPayload.games[0].launchUrl.includes('gameIdentificationNumber=1'));
+    assert(gamesPayload.games[0].legacyLaunchUrl.startsWith('/ActionMoneyEGT/html5/index.html?'));
 
     const gameDetails = await httpRequest(port, '/api/games/1');
     assert.strictEqual(gameDetails.statusCode, 200);
@@ -384,6 +396,28 @@ async function main() {
     assert.strictEqual(rtpResponse.statusCode, 200);
     const rtpPayload = JSON.parse(rtpResponse.body);
     assert.strictEqual(rtpPayload.simulation.spins, 300);
+    assert.strictEqual(typeof rtpPayload.simulation.runId, 'string');
+
+    const rtpHistoryResponse = await httpRequest(port, '/api/v1/games/1/rtp/history', {
+      headers: {
+        'X-Admin-Token': 'test-admin-token'
+      }
+    });
+    assert.strictEqual(rtpHistoryResponse.statusCode, 200);
+    assert(JSON.parse(rtpHistoryResponse.body).runs.length >= 1);
+
+    const unauthorizedRtpHistoryResponse = await httpRequest(port, '/api/v1/games/1/rtp/history');
+    assert.strictEqual(unauthorizedRtpHistoryResponse.statusCode, 401);
+
+    const invalidRtpHistoryMethodResponse = await httpRequest(port, '/api/v1/games/1/rtp/history', {
+      method: 'POST',
+      headers: {
+        'X-Admin-Token': 'test-admin-token',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ spins: 10 })
+    });
+    assert.strictEqual(invalidRtpHistoryMethodResponse.statusCode, 405);
 
     const invalidGamesMethod = await httpRequest(port, '/api/games', { method: 'POST' });
     assert.strictEqual(invalidGamesMethod.statusCode, 405);
@@ -407,6 +441,7 @@ async function main() {
     assert.strictEqual(createdSessionPayload.session.playerName, 'tester');
     assert.strictEqual(createdSessionPayload.session.selectedGame.gameType, 'AMJSlot');
     assert(createdSessionPayload.launchUrl.includes(createdSessionPayload.session.id));
+    assert(createdSessionPayload.legacyLaunchUrl.includes(createdSessionPayload.session.id));
 
     const sessionsResponse = await httpRequest(port, '/api/sessions');
     assert.strictEqual(sessionsResponse.statusCode, 200);
@@ -426,7 +461,9 @@ async function main() {
       body: JSON.stringify({ gameIdentificationNumber: 1 })
     });
     assert.strictEqual(selectedGameResponse.statusCode, 200);
-    assert(JSON.parse(selectedGameResponse.body).launchUrl.includes('gameIdentificationNumber=1'));
+    const selectedGamePayload = JSON.parse(selectedGameResponse.body);
+    assert(selectedGamePayload.launchUrl.includes('gameIdentificationNumber=1'));
+    assert(selectedGamePayload.legacyLaunchUrl.includes('gameIdentificationNumber=1'));
 
     const balanceUpdateResponse = await httpRequest(port, `/api/sessions/${encodeURIComponent(createdSessionPayload.session.id)}/balance`, {
       method: 'POST',
@@ -588,6 +625,22 @@ async function main() {
       }
     });
     assert.strictEqual(publishGameMethodResponse.statusCode, 405);
+
+    const gameVersionsResponse = await httpRequest(port, '/api/v1/admin/games/1/versions', {
+      headers: {
+        'X-Admin-Token': 'test-admin-token'
+      }
+    });
+    assert.strictEqual(gameVersionsResponse.statusCode, 200);
+    assert(JSON.parse(gameVersionsResponse.body).versions.length >= 1);
+
+    const auditResponse = await httpRequest(port, '/api/v1/admin/audit', {
+      headers: {
+        'X-Admin-Token': 'test-admin-token'
+      }
+    });
+    assert.strictEqual(auditResponse.statusCode, 200);
+    assert(JSON.parse(auditResponse.body).entries.length >= 1);
 
     const mediumLargeBodyResponse = await httpRequest(port, '/api/v1/sessions', {
       method: 'POST',

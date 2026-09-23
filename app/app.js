@@ -69,7 +69,7 @@
   function resolveWsUrl() {
     const host = runtimeConfig.tcpHost || window.location.hostname;
     const port = runtimeConfig.tcpPort || window.location.port;
-    const protocol = runtimeConfig.sslHost ? 'wss' : 'ws';
+    const protocol = runtimeConfig.sslHost === true || window.location.protocol === 'https:' ? 'wss' : 'ws';
     const portPart = port && !['80', '443'].includes(String(port)) ? ':' + port : '';
     return protocol + '://' + host + portPart + '/';
   }

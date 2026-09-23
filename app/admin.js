@@ -301,10 +301,10 @@
     document.getElementById('game-select').addEventListener('change', function (event) {
       state.selectedGameId = Number(event.target.value);
       fillGameForm();
-      loadVersions().catch(console.error);
-      loadRtpHistory().catch(console.error);
+      loadVersions().catch(showError);
+      loadRtpHistory().catch(showError);
     });
-    document.getElementById('load-games').addEventListener('click', () => loadGames().then(loadVersions).then(loadRtpHistory));
+    document.getElementById('load-games').addEventListener('click', () => loadGames().then(loadVersions).then(loadRtpHistory).catch(showError));
     document.getElementById('create-game').addEventListener('click', () => createGame().catch(showError));
     document.getElementById('duplicate-game').addEventListener('click', () => duplicateGame().catch(showError));
     document.getElementById('save-game').addEventListener('click', () => saveGame().catch(showError));

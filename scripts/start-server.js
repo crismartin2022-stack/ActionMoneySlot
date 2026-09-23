@@ -290,6 +290,14 @@ function createServer(options) {
       return;
     }
 
+    if (pathname === '/admin' || pathname === '/admin/' || pathname === '/admin/index.html') {
+      const handled = backend.handleAdminRequest(req, res, pathname, shouldSendBody);
+      if (!handled) {
+        sendJson(res, 404, { error: 'Not Found' }, shouldSendBody);
+      }
+      return;
+    }
+
     if (!['GET', 'HEAD'].includes(method)) {
       res.writeHead(405, {
         Allow: 'GET, HEAD',
@@ -316,6 +324,7 @@ function createServer(options) {
         ok: true,
         entrypoint: DEFAULT_ENTRYPOINT,
         apiBase: runtimeConfig.apiBase,
+        versionedApiBase: backend.versionedApiBase,
         games: backend.games.map((game) => ({
           gameIdentificationNumber: game.gameIdentificationNumber,
           gameName: game.gameName,

@@ -290,7 +290,7 @@ function createServer(options) {
       return;
     }
 
-    if (pathname === '/admin' || pathname === '/admin/' || pathname === '/admin/index.html') {
+    if (pathname === '/admin' || pathname.startsWith('/admin/')) {
       const handled = backend.handleAdminRequest(req, res, pathname, shouldSendBody);
       if (!handled) {
         sendJson(res, 404, { error: 'Not Found' }, shouldSendBody);

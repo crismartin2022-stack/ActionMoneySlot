@@ -398,6 +398,42 @@ function parseCookies(cookieHeader) {
     }, {});
 }
 
+function detectImageMime(buffer) {
+  if (!Buffer.isBuffer(buffer) || !buffer.length) {
+    return null;
+  }
+  if (
+    buffer.length >= 8
+    && buffer[0] === 0x89
+    && buffer[1] === 0x50
+    && buffer[2] === 0x4e
+    && buffer[3] === 0x47
+    && buffer[4] === 0x0d
+    && buffer[5] === 0x0a
+    && buffer[6] === 0x1a
+    && buffer[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (buffer.length >= 6 && buffer.slice(0, 6).toString('ascii') === 'GIF87a') {
+    return 'image/gif';
+  }
+  if (buffer.length >= 6 && buffer.slice(0, 6).toString('ascii') === 'GIF89a') {
+    return 'image/gif';
+  }
+  if (
+    buffer.length >= 12
+    && buffer.slice(0, 4).toString('ascii') === 'RIFF'
+    && buffer.slice(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  return null;
+}
+
 function serializePermissions(permissions) {
   return JSON.stringify(Array.isArray(permissions) ? permissions : ['read', 'write']);
 }
@@ -1631,8 +1667,8 @@ function createAdminPanelHtml({ versionedApiBase }) {
     </section>
     <section>
       <h2>Subir imagen</h2>
-      <input id="image-name" value="demo.txt" />
-      <textarea id="image-content" rows="6">ZGVtby1hc3NldA==</textarea>
+      <input id="image-name" value="demo.png" />
+      <textarea id="image-content" rows="6">iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+s9xkAAAAASUVORK5CYII=</textarea>
       <button id="upload-image">Subir</button>
       <pre id="images-output"></pre>
     </section>
@@ -1650,10 +1686,14 @@ function createAdminPanelHtml({ versionedApiBase }) {
   </div>
   <script>
     async function call(path, options = {}) {
+      const method = (options.method || 'GET').toUpperCase();
+      const csrfHeaders = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
+        ? { 'X-CSRF-Token': window.__ACTION_MONEY_SLOT_ADMIN_CSRF__ }
+        : {};
       const response = await fetch(path, {
         credentials: 'same-origin',
         ...options,
-        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+        headers: { 'Content-Type': 'application/json', ...csrfHeaders, ...(options.headers || {}) }
       });
       const text = await response.text();
       try {
@@ -1690,6 +1730,41 @@ function createAdminPanelHtml({ versionedApiBase }) {
     document.getElementById('create-api-key').onclick = async () => {
       document.getElementById('api-key-output').textContent = JSON.stringify(await call('${versionedApiBase}/api-keys', { method: 'POST', body: JSON.stringify({ label: document.getElementById('api-key-label').value }) }), null, 2);
     };
+  </script>
+</body>
+</html>`;
+}
+
+function createAdminLoginHtml() {
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ActionMoneySlot Admin Login</title>
+</head>
+<body>
+  <h1>ActionMoneySlot Admin</h1>
+  <form id="login-form">
+    <label>Admin token <input id="token" type="password" autocomplete="current-password" /></label>
+    <button type="submit">Entrar</button>
+  </form>
+  <pre id="status"></pre>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const response = await fetch('/admin/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ token: document.getElementById('token').value })
+      });
+      if (response.ok) {
+        window.location.href = '/admin';
+        return;
+      }
+      document.getElementById('status').textContent = await response.text();
+    });
   </script>
 </body>
 </html>`;
@@ -1733,25 +1808,115 @@ function createBackend(options) {
   const configuredAdminToken = String(process.env.ACTION_MONEY_SLOT_ADMIN_TOKEN || '').trim();
   const adminEnabled = configuredAdminToken && configuredAdminToken !== DEFAULT_ADMIN_TOKEN;
   const adminToken = adminEnabled ? configuredAdminToken : '';
-  const adminSessions = new Set();
+  const adminSessions = new Map();
   const sockets = new Set();
   const webSocketServer = new WebSocketServer({ noServer: true });
 
-  function requireAdmin(req, res, shouldSendBody) {
+  function getAdminSession(req) {
+    const cookies = parseCookies(req.headers.cookie);
+    return cookies.ams_admin_session ? adminSessions.get(cookies.ams_admin_session) || null : null;
+  }
+
+  function createAdminSession() {
+    const sessionId = crypto.randomUUID();
+    const csrfToken = crypto.randomBytes(24).toString('hex');
+    adminSessions.set(sessionId, {
+      csrfToken,
+      createdAt: Date.now()
+    });
+    return {
+      sessionId,
+      csrfToken
+    };
+  }
+
+  function requireAdmin(req, res, shouldSendBody, options = {}) {
     if (!adminEnabled) {
       sendApiJson(res, 503, { error: 'Admin features are disabled until ACTION_MONEY_SLOT_ADMIN_TOKEN is configured.' }, shouldSendBody);
       return false;
     }
     const supplied = extractToken(req, 'x-admin-token');
-    const cookies = parseCookies(req.headers.cookie);
-    const hasSession = cookies.ams_admin_session && adminSessions.has(cookies.ams_admin_session);
-    if (hasSession || supplied === adminToken) {
+    const session = getAdminSession(req);
+    const method = (req.method || 'GET').toUpperCase();
+    const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+    if (supplied === adminToken) {
       return true;
     }
-    if (supplied !== adminToken) {
-      sendApiJson(res, 401, { error: 'Admin token required.' }, shouldSendBody);
-      return false;
+    if (session && !isMutating) {
+      return true;
     }
+    if (session && isMutating && extractToken(req, 'x-csrf-token') === session.csrfToken) {
+      return true;
+    }
+    sendApiJson(res, session ? 403 : 401, { error: session ? 'CSRF token required.' : 'Admin token required.' }, shouldSendBody);
+    return false;
+  }
+
+  function validateImagePayload(payload) {
+    const content = Buffer.from(String(payload.contentBase64 || ''), 'base64');
+    const detectedMimeType = detectImageMime(content);
+    const declaredMimeType = String(payload.mimeType || '').trim().toLowerCase();
+    if (!detectedMimeType) {
+      return { error: 'Uploaded content is not a supported image.' };
+    }
+    if (declaredMimeType && detectedMimeType !== declaredMimeType) {
+      return { error: `Declared mime type does not match content: ${detectedMimeType}` };
+    }
+    return {
+      content,
+      mimeType: detectedMimeType
+    };
+  }
+
+  function maybeRedactSpinAudit(spins, req) {
+    if (adminEnabled && (
+      extractToken(req, 'x-admin-token') === adminToken
+      || getAdminSession(req)
+    )) {
+      return spins;
+    }
+    return spins.map(({ rngBefore, rngAfter, ...entry }) => entry);
+  }
+
+  function handleAdminSessionRequest(req, res, shouldSendBody) {
+    if (!adminEnabled) {
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(shouldSendBody ? 'Admin disabled until ACTION_MONEY_SLOT_ADMIN_TOKEN is configured.' : undefined);
+      return true;
+    }
+    if (req.method === 'POST') {
+      return readJsonBody(req).then((payload) => {
+        const suppliedToken = String(payload.token || extractToken(req, 'x-admin-token') || '').trim();
+        if (suppliedToken !== adminToken) {
+          sendApiJson(res, 401, { error: 'Admin token required.' }, shouldSendBody);
+          return true;
+        }
+        const sessionInfo = createAdminSession();
+        res.writeHead(200, {
+          'Cache-Control': 'no-store',
+          'Content-Type': 'application/json; charset=utf-8',
+          'Set-Cookie': `ams_admin_session=${sessionInfo.sessionId}; HttpOnly; SameSite=Strict; Path=/`
+        });
+        res.end(shouldSendBody ? JSON.stringify({ ok: true, csrfToken: sessionInfo.csrfToken }) : undefined);
+        return true;
+      }).catch((error) => {
+        sendApiJson(res, 400, { error: error.message }, shouldSendBody);
+        return true;
+      });
+    }
+    if (req.method === 'DELETE') {
+      const cookies = parseCookies(req.headers.cookie);
+      if (cookies.ams_admin_session) {
+        adminSessions.delete(cookies.ams_admin_session);
+      }
+      res.writeHead(204, {
+        'Set-Cookie': 'ams_admin_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'
+      });
+      res.end();
+      return true;
+    }
+    res.setHeader('Allow', 'POST, DELETE');
+    sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
     return true;
   }
 
@@ -2050,18 +2215,7 @@ function createBackend(options) {
         return true;
       }
       const spins = sessionStore.listSpinHistory(sessionId, query);
-      const canViewAudit = adminEnabled && (
-        extractToken(req, 'x-admin-token') === adminToken
-        || adminSessions.has(parseCookies(req.headers.cookie).ams_admin_session || '')
-      );
-      if (!canViewAudit) {
-        sendApiJson(res, 200, {
-          sessionId,
-          spins: spins.map(({ rngBefore, rngAfter, ...entry }) => entry)
-        }, shouldSendBody);
-        return true;
-      }
-      sendApiJson(res, 200, { sessionId, spins }, shouldSendBody);
+      sendApiJson(res, 200, { sessionId, spins: maybeRedactSpinAudit(spins, req) }, shouldSendBody);
       return true;
     }
 
@@ -2084,11 +2238,12 @@ function createBackend(options) {
           sendApiJson(res, 400, { error: 'fileName and contentBase64 are required.' }, shouldSendBody);
           return true;
         }
-        if (payload.mimeType && !String(payload.mimeType).startsWith('image/')) {
-          sendApiJson(res, 400, { error: 'Only image/* mime types are accepted for uploaded assets.' }, shouldSendBody);
+        const validatedImage = validateImagePayload(payload);
+        if (validatedImage.error) {
+          sendApiJson(res, 400, { error: validatedImage.error }, shouldSendBody);
           return true;
         }
-        const image = sessionStore.saveImage(payload);
+        const image = sessionStore.saveImage({ ...payload, mimeType: validatedImage.mimeType });
         sendApiJson(res, 201, { image: { ...image, url: buildImageUrl(image.id, versionedApiBase) } }, shouldSendBody);
         return true;
       }
@@ -2107,7 +2262,7 @@ function createBackend(options) {
       res.writeHead(200, {
         'Cache-Control': 'no-store',
         'Content-Disposition': `attachment; filename="${sanitizeFileName(image.fileName)}"`,
-        'Content-Type': 'application/octet-stream',
+        'Content-Type': image.mimeType,
         'X-Content-Type-Options': 'nosniff'
       });
       res.end(shouldSendBody ? fs.readFileSync(image.storagePath) : undefined);
@@ -2126,11 +2281,12 @@ function createBackend(options) {
           sendApiJson(res, 400, { error: 'fileName and contentBase64 are required.' }, shouldSendBody);
           return true;
         }
-        if (payload.mimeType && !String(payload.mimeType).startsWith('image/')) {
-          sendApiJson(res, 400, { error: 'Only image/* mime types are accepted for uploaded assets.' }, shouldSendBody);
+        const validatedImage = validateImagePayload(payload);
+        if (validatedImage.error) {
+          sendApiJson(res, 400, { error: validatedImage.error }, shouldSendBody);
           return true;
         }
-        const image = sessionStore.saveImage(payload, imageId);
+        const image = sessionStore.saveImage({ ...payload, mimeType: validatedImage.mimeType }, imageId);
         sendApiJson(res, 200, { image: { ...image, url: buildImageUrl(image.id, versionedApiBase) } }, shouldSendBody);
         return true;
       }
@@ -2272,19 +2428,27 @@ function createBackend(options) {
     sessionStore,
     async handleApiRequest(req, res, pathname, shouldSendBody) {
       const query = parseQueryParams(req.url || '/');
-      if (pathname === apiBase || pathname.startsWith(`${apiBase}/`)) {
-        const legacyAlias = !pathname.startsWith(versionedApiBase);
-        const translatedPath = pathname.startsWith(versionedApiBase)
-          ? pathname
-          : pathname.replace(new RegExp(`^${apiBasePattern}`), versionedApiBase);
-        return handleVersionedApiRequest(req, res, translatedPath, shouldSendBody, query, { legacyAlias });
-      }
-      if (pathname === versionedApiBase || pathname.startsWith(`${versionedApiBase}/`)) {
-        return handleVersionedApiRequest(req, res, pathname, shouldSendBody, query, { legacyAlias: false });
+      try {
+        if (pathname === apiBase || pathname.startsWith(`${apiBase}/`)) {
+          const legacyAlias = !pathname.startsWith(versionedApiBase);
+          const translatedPath = pathname.startsWith(versionedApiBase)
+            ? pathname
+            : pathname.replace(new RegExp(`^${apiBasePattern}`), versionedApiBase);
+          return await handleVersionedApiRequest(req, res, translatedPath, shouldSendBody, query, { legacyAlias });
+        }
+        if (pathname === versionedApiBase || pathname.startsWith(`${versionedApiBase}/`)) {
+          return await handleVersionedApiRequest(req, res, pathname, shouldSendBody, query, { legacyAlias: false });
+        }
+      } catch (error) {
+        sendApiJson(res, 400, { error: error.message || 'Bad Request' }, shouldSendBody);
+        return true;
       }
       return false;
     },
     handleAdminRequest(req, res, pathname, shouldSendBody) {
+      if (pathname === '/admin/session') {
+        return handleAdminSessionRequest(req, res, shouldSendBody);
+      }
       if (pathname !== '/admin' && pathname !== '/admin/' && pathname !== '/admin/index.html') {
         return false;
       }
@@ -2293,19 +2457,20 @@ function createBackend(options) {
         res.end(shouldSendBody ? 'Admin disabled until ACTION_MONEY_SLOT_ADMIN_TOKEN is configured.' : undefined);
         return true;
       }
-      if (parseQueryParams(req.url || '/').token !== adminToken) {
-        res.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end(shouldSendBody ? 'Admin token required. Use /admin?token=YOUR_TOKEN.' : undefined);
+      const session = getAdminSession(req);
+      if (!session) {
+        res.writeHead(200, {
+          'Cache-Control': 'no-store',
+          'Content-Type': 'text/html; charset=utf-8'
+        });
+        res.end(shouldSendBody ? createAdminLoginHtml() : undefined);
         return true;
       }
-      const adminSessionId = crypto.randomUUID();
-      adminSessions.add(adminSessionId);
       res.writeHead(200, {
         'Cache-Control': 'no-store',
-        'Content-Type': 'text/html; charset=utf-8',
-        'Set-Cookie': `ams_admin_session=${adminSessionId}; HttpOnly; SameSite=Strict; Path=/`
+        'Content-Type': 'text/html; charset=utf-8'
       });
-      res.end(shouldSendBody ? createAdminPanelHtml({ versionedApiBase }) : undefined);
+      res.end(shouldSendBody ? createAdminPanelHtml({ versionedApiBase }).replace('</body>', `<script>window.__ACTION_MONEY_SLOT_ADMIN_CSRF__=${JSON.stringify(session.csrfToken)};</script></body>`) : undefined);
       return true;
     },
     handleUpgrade(req, socket, head) {

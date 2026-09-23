@@ -26,6 +26,7 @@ const {
   createServer,
   inferSameOriginRuntimeConfig
 } = require('./start-server');
+const tinyPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+s9xkAAAAASUVORK5CYII=';
 
 function httpRequest(port, pathname, options = {}) {
   return new Promise((resolve, reject) => {
@@ -47,7 +48,13 @@ function httpRequest(port, pathname, options = {}) {
       });
     });
 
-    request.on('error', reject);
+    request.on('error', (error) => {
+      if (options.allowError) {
+        resolve({ error });
+        return;
+      }
+      reject(error);
+    });
     if (options.body) {
       request.write(options.body);
     }
@@ -437,9 +444,26 @@ async function main() {
     assert.strictEqual(invalidBalanceMethod.headers.allow, 'POST');
 
     const adminRejected = await httpRequest(port, '/admin');
-    assert.strictEqual(adminRejected.statusCode, 401);
+    assert.strictEqual(adminRejected.statusCode, 200);
+    assert(adminRejected.body.includes('ActionMoneySlot Admin Login'));
 
-    const adminPanel = await httpRequest(port, '/admin?token=test-admin-token');
+    const adminSessionResponse = await httpRequest(port, '/admin/session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ token: 'test-admin-token' })
+    });
+    assert.strictEqual(adminSessionResponse.statusCode, 200);
+    const adminSessionPayload = JSON.parse(adminSessionResponse.body);
+    assert.strictEqual(typeof adminSessionPayload.csrfToken, 'string');
+    const adminCookie = adminSessionResponse.headers['set-cookie'][0].split(';')[0];
+
+    const adminPanel = await httpRequest(port, '/admin', {
+      headers: {
+        Cookie: adminCookie
+      }
+    });
     assert.strictEqual(adminPanel.statusCode, 200);
     assert(adminPanel.body.includes('ActionMoneySlot Admin'));
 
@@ -481,7 +505,7 @@ async function main() {
         gameIdentificationNumber: 1,
         fileName: 'demo.png',
         mimeType: 'image/png',
-        contentBase64: Buffer.from('demo-asset', 'utf8').toString('base64')
+        contentBase64: tinyPngBase64
       })
     });
     assert.strictEqual(uploadImageResponse.statusCode, 201);
@@ -490,7 +514,8 @@ async function main() {
 
     const imageContentResponse = await httpRequest(port, uploadedImage.url);
     assert.strictEqual(imageContentResponse.statusCode, 200);
-    assert.strictEqual(imageContentResponse.body, 'demo-asset');
+    assert.strictEqual(imageContentResponse.headers['content-type'], 'image/png');
+    assert.strictEqual(Buffer.from(imageContentResponse.body, 'utf8').length > 0, true);
 
     const imageUpdateResponse = await httpRequest(port, `/api/v1/images/${encodeURIComponent(uploadedImage.id)}`, {
       method: 'PUT',
@@ -502,7 +527,7 @@ async function main() {
         gameIdentificationNumber: 1,
         fileName: 'demo.png',
         mimeType: 'image/png',
-        contentBase64: Buffer.from('demo-asset-v2', 'utf8').toString('base64')
+        contentBase64: tinyPngBase64
       })
     });
     assert.strictEqual(imageUpdateResponse.statusCode, 200);
@@ -563,6 +588,32 @@ async function main() {
       }
     });
     assert.strictEqual(publishGameMethodResponse.statusCode, 405);
+
+    const mediumLargeBodyResponse = await httpRequest(port, '/api/v1/sessions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        playerName: 'x'.repeat(1024 * 1024 + 128),
+        balance: 1000,
+        currency: 'EUR',
+        language: 'en'
+      })
+    });
+    assert.strictEqual(mediumLargeBodyResponse.statusCode, 201);
+
+    const tooLargeBodyResponse = await httpRequest(port, '/api/v1/sessions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      allowError: true,
+      body: JSON.stringify({
+        playerName: 'x'.repeat(4 * 1024 * 1024 + 128)
+      })
+    });
+    assert(tooLargeBodyResponse.statusCode === 400 || tooLargeBodyResponse.error);
 
     let expectedPersistedBalance = updatedSession.balance;
     const socket = await createWebSocketSession(port);

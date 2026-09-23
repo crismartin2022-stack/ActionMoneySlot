@@ -38,7 +38,7 @@ http://localhost:8080
 Panel admin:
 
 ```text
-http://localhost:8080/admin?token=change-me-admin-token
+http://localhost:8080/admin?token=<ACTION_MONEY_SLOT_ADMIN_TOKEN>
 ```
 
 ## Arquitectura
@@ -176,6 +176,8 @@ Características implementadas:
 Variable:
 
 - `ACTION_MONEY_SLOT_ADMIN_TOKEN`
+
+Si no se configura, las rutas administrativas quedan deshabilitadas.
 
 Cabecera:
 

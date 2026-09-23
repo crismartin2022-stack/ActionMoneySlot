@@ -141,21 +141,25 @@ function normalizeMathConfig(config = {}) {
 }
 
 function getVisibleGrid(config, state) {
-  return config.reels.slice(0, config.layout.reels).map((strip) => {
+  const stops = [];
+  const columns = config.reels.slice(0, config.layout.reels).map((strip) => {
     const stop = randomInt(state, strip.length);
+    stops.push(stop);
     const column = [];
     for (let rowIndex = 0; rowIndex < config.layout.rows; rowIndex += 1) {
       column.push(strip[(stop + rowIndex) % strip.length]);
     }
     return column;
   });
+  return { columns, stops };
 }
 
-function gridToTransportReels(config, grid) {
+function gridToTransportReels(config, grid, stops) {
   return grid.flatMap((column, reelIndex) => {
     const strip = config.reels[reelIndex];
-    const top = strip[(strip.indexOf(column[0]) - 1 + strip.length) % strip.length];
-    const bottom = strip[(strip.indexOf(column[column.length - 1]) + 1) % strip.length];
+    const stop = stops[reelIndex];
+    const top = strip[(stop - 1 + strip.length) % strip.length];
+    const bottom = strip[(stop + column.length) % strip.length];
     return [top, ...column, bottom];
   });
 }
@@ -295,7 +299,7 @@ function buildSpinState(config, result, options) {
     denomination,
     numberOfLines: lines,
     winAmount: result.totalWin,
-    reels: gridToTransportReels(config, result.grid),
+    reels: gridToTransportReels(config, result.grid, result.stops),
     lines: clone(result.lineWins),
     combos: clone(result.lineWins.length ? result.lineWins : result.waysWins),
     scatters: clone(result.scatterCells),
@@ -328,7 +332,8 @@ function spin(configInput, rngStateInput, options = {}) {
   const freeSpinsConsumed = freeSpinsBalance > 0 ? 1 : 0;
   const wageredAmount = freeSpinsConsumed ? 0 : totalBet;
   const rngBefore = serializeSeed(state.value);
-  const grid = getVisibleGrid(config, state);
+  const visibleGrid = getVisibleGrid(config, state);
+  const grid = visibleGrid.columns;
   const lineWins = config.layout.mode === 'lines' ? calculateLineWins(config, grid, betPerLine).slice(0, lines) : [];
   const waysWins = calculateWaysWins(config, grid, betPerLine);
   const featureOutcome = resolveScatterAndBonus(config, grid, totalBet);
@@ -345,6 +350,7 @@ function spin(configInput, rngStateInput, options = {}) {
   }
   const result = {
     grid,
+    stops: visibleGrid.stops,
     totalBet: wageredAmount,
     lineWins,
     waysWins,

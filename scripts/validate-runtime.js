@@ -479,8 +479,8 @@ async function main() {
       },
       body: JSON.stringify({
         gameIdentificationNumber: 1,
-        fileName: 'demo.txt',
-        mimeType: 'text/plain',
+        fileName: 'demo.png',
+        mimeType: 'image/png',
         contentBase64: Buffer.from('demo-asset', 'utf8').toString('base64')
       })
     });
@@ -500,8 +500,8 @@ async function main() {
       },
       body: JSON.stringify({
         gameIdentificationNumber: 1,
-        fileName: 'demo.txt',
-        mimeType: 'text/plain',
+        fileName: 'demo.png',
+        mimeType: 'image/png',
         contentBase64: Buffer.from('demo-asset-v2', 'utf8').toString('base64')
       })
     });
@@ -522,6 +522,13 @@ async function main() {
     assert.strictEqual(duplicateGameResponse.statusCode, 201);
     const duplicatedGame = JSON.parse(duplicateGameResponse.body).game;
     assert.strictEqual(duplicatedGame.displayName, 'Action Money Slot Copy');
+
+    const duplicateGameMethodResponse = await httpRequest(port, '/api/v1/admin/games/1/duplicate', {
+      headers: {
+        'X-Admin-Token': 'test-admin-token'
+      }
+    });
+    assert.strictEqual(duplicateGameMethodResponse.statusCode, 405);
 
     const updateGameConfigResponse = await httpRequest(port, '/api/v1/admin/games/1/config', {
       method: 'PUT',
@@ -549,6 +556,13 @@ async function main() {
       }
     });
     assert.strictEqual(publishGameResponse.statusCode, 200);
+
+    const publishGameMethodResponse = await httpRequest(port, '/api/v1/admin/games/1/publish', {
+      headers: {
+        'X-Admin-Token': 'test-admin-token'
+      }
+    });
+    assert.strictEqual(publishGameMethodResponse.statusCode, 405);
 
     let expectedPersistedBalance = updatedSession.balance;
     const socket = await createWebSocketSession(port);
@@ -710,7 +724,11 @@ async function main() {
     assert.strictEqual(persistedSession.balance, expectedPersistedBalance);
     assert.strictEqual(persistedSession.selectedGameId, 1);
 
-    const spinHistoryResponse = await httpRequest(reopenedPort, `/api/v1/sessions/${encodeURIComponent(createdSessionPayload.session.id)}/spins`);
+    const spinHistoryResponse = await httpRequest(reopenedPort, `/api/v1/sessions/${encodeURIComponent(createdSessionPayload.session.id)}/spins`, {
+      headers: {
+        'X-Admin-Token': 'test-admin-token'
+      }
+    });
     assert.strictEqual(spinHistoryResponse.statusCode, 200);
     const spinHistoryPayload = JSON.parse(spinHistoryResponse.body);
     assert(spinHistoryPayload.spins.length >= 2);

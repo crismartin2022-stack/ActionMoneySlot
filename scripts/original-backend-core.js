@@ -360,7 +360,42 @@ function resolveGameSelection(games, input = {}, options = {}) {
 }
 
 function sha256(value) {
-  return crypto.createHash('sha256').update(String(value)).digest('hex');
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function hashSecret(secret) {
+  const salt = crypto.randomBytes(16);
+  const derived = crypto.scryptSync(String(secret), salt, 32);
+  return `${salt.toString('hex')}:${derived.toString('hex')}`;
+}
+
+function verifyHashedSecret(secret, storedValue) {
+  const parts = String(storedValue || '').split(':');
+  if (parts.length !== 2) {
+    return false;
+  }
+  const [saltHex, hashHex] = parts;
+  const salt = Buffer.from(saltHex, 'hex');
+  const derived = crypto.scryptSync(String(secret), salt, 32);
+  const expected = Buffer.from(hashHex, 'hex');
+  return expected.length === derived.length && crypto.timingSafeEqual(expected, derived);
+}
+
+function parseCookies(cookieHeader) {
+  return String(cookieHeader || '')
+    .split(';')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .reduce((accumulator, entry) => {
+      const separatorIndex = entry.indexOf('=');
+      if (separatorIndex === -1) {
+        return accumulator;
+      }
+      const key = entry.slice(0, separatorIndex).trim();
+      const value = entry.slice(separatorIndex + 1).trim();
+      accumulator[key] = value;
+      return accumulator;
+    }, {});
 }
 
 function serializePermissions(permissions) {
@@ -626,7 +661,6 @@ class SessionStore {
         VALUES (?, ?, ?, ?, 1, NULL, ?, NULL)
       `),
       selectApiKeys: this.db.prepare('SELECT * FROM api_keys ORDER BY created_at DESC'),
-      selectActiveApiKeyByHash: this.db.prepare('SELECT * FROM api_keys WHERE key_hash = ? AND active = 1 LIMIT 1'),
       touchApiKey: this.db.prepare('UPDATE api_keys SET last_used_at = ? WHERE id = ?'),
       revokeApiKey: this.db.prepare('UPDATE api_keys SET active = 0, revoked_at = ? WHERE id = ?')
     };
@@ -1045,7 +1079,7 @@ class SessionStore {
     this.statements.insertApiKey.run(
       id,
       String(payload.label || 'integration'),
-      sha256(plainText),
+      hashSecret(plainText),
       serializePermissions(payload.permissions),
       now
     );
@@ -1080,7 +1114,8 @@ class SessionStore {
     if (!token) {
       return null;
     }
-    const row = this.statements.selectActiveApiKeyByHash.get(sha256(token));
+    const row = this.statements.selectApiKeys.all()
+      .find((entry) => Boolean(entry.active) && verifyHashedSecret(token, entry.key_hash));
     if (!row) {
       return null;
     }
@@ -1563,7 +1598,7 @@ function handleCollect(request, session, game, sessionStore) {
   }, 'bet');
 }
 
-function createAdminPanelHtml({ adminToken, versionedApiBase }) {
+function createAdminPanelHtml({ versionedApiBase }) {
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -1614,10 +1649,12 @@ function createAdminPanelHtml({ adminToken, versionedApiBase }) {
     </section>
   </div>
   <script>
-    const token = ${JSON.stringify(adminToken)};
-    const headers = { 'Content-Type': 'application/json', 'X-Admin-Token': token };
     async function call(path, options = {}) {
-      const response = await fetch(path, { ...options, headers: { ...headers, ...(options.headers || {}) } });
+      const response = await fetch(path, {
+        credentials: 'same-origin',
+        ...options,
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+      });
       const text = await response.text();
       try {
         return JSON.parse(text);
@@ -1642,7 +1679,7 @@ function createAdminPanelHtml({ adminToken, versionedApiBase }) {
       const payload = {
         gameIdentificationNumber: 1,
         fileName: document.getElementById('image-name').value,
-        mimeType: 'text/plain',
+        mimeType: 'image/png',
         contentBase64: document.getElementById('image-content').value
       };
       document.getElementById('images-output').textContent = JSON.stringify(await call('${versionedApiBase}/images', { method: 'POST', body: JSON.stringify(payload) }), null, 2);
@@ -1693,12 +1730,24 @@ function createBackend(options) {
     language: options.defaults && options.defaults.language,
     playerName: options.defaults && options.defaults.playerName
   });
-  const adminToken = String(process.env.ACTION_MONEY_SLOT_ADMIN_TOKEN || DEFAULT_ADMIN_TOKEN);
+  const configuredAdminToken = String(process.env.ACTION_MONEY_SLOT_ADMIN_TOKEN || '').trim();
+  const adminEnabled = configuredAdminToken && configuredAdminToken !== DEFAULT_ADMIN_TOKEN;
+  const adminToken = adminEnabled ? configuredAdminToken : '';
+  const adminSessions = new Set();
   const sockets = new Set();
   const webSocketServer = new WebSocketServer({ noServer: true });
 
   function requireAdmin(req, res, shouldSendBody) {
+    if (!adminEnabled) {
+      sendApiJson(res, 503, { error: 'Admin features are disabled until ACTION_MONEY_SLOT_ADMIN_TOKEN is configured.' }, shouldSendBody);
+      return false;
+    }
     const supplied = extractToken(req, 'x-admin-token');
+    const cookies = parseCookies(req.headers.cookie);
+    const hasSession = cookies.ams_admin_session && adminSessions.has(cookies.ams_admin_session);
+    if (hasSession || supplied === adminToken) {
+      return true;
+    }
     if (supplied !== adminToken) {
       sendApiJson(res, 401, { error: 'Admin token required.' }, shouldSendBody);
       return false;
@@ -2001,6 +2050,17 @@ function createBackend(options) {
         return true;
       }
       const spins = sessionStore.listSpinHistory(sessionId, query);
+      const canViewAudit = adminEnabled && (
+        extractToken(req, 'x-admin-token') === adminToken
+        || adminSessions.has(parseCookies(req.headers.cookie).ams_admin_session || '')
+      );
+      if (!canViewAudit) {
+        sendApiJson(res, 200, {
+          sessionId,
+          spins: spins.map(({ rngBefore, rngAfter, ...entry }) => entry)
+        }, shouldSendBody);
+        return true;
+      }
       sendApiJson(res, 200, { sessionId, spins }, shouldSendBody);
       return true;
     }
@@ -2024,6 +2084,10 @@ function createBackend(options) {
           sendApiJson(res, 400, { error: 'fileName and contentBase64 are required.' }, shouldSendBody);
           return true;
         }
+        if (payload.mimeType && !String(payload.mimeType).startsWith('image/')) {
+          sendApiJson(res, 400, { error: 'Only image/* mime types are accepted for uploaded assets.' }, shouldSendBody);
+          return true;
+        }
         const image = sessionStore.saveImage(payload);
         sendApiJson(res, 201, { image: { ...image, url: buildImageUrl(image.id, versionedApiBase) } }, shouldSendBody);
         return true;
@@ -2042,7 +2106,9 @@ function createBackend(options) {
       }
       res.writeHead(200, {
         'Cache-Control': 'no-store',
-        'Content-Type': image.mimeType
+        'Content-Disposition': `attachment; filename="${sanitizeFileName(image.fileName)}"`,
+        'Content-Type': 'application/octet-stream',
+        'X-Content-Type-Options': 'nosniff'
       });
       res.end(shouldSendBody ? fs.readFileSync(image.storagePath) : undefined);
       return true;
@@ -2058,6 +2124,10 @@ function createBackend(options) {
         const payload = await readJsonBody(req);
         if (!payload.fileName || !payload.contentBase64) {
           sendApiJson(res, 400, { error: 'fileName and contentBase64 are required.' }, shouldSendBody);
+          return true;
+        }
+        if (payload.mimeType && !String(payload.mimeType).startsWith('image/')) {
+          sendApiJson(res, 400, { error: 'Only image/* mime types are accepted for uploaded assets.' }, shouldSendBody);
           return true;
         }
         const image = sessionStore.saveImage(payload, imageId);
@@ -2128,6 +2198,11 @@ function createBackend(options) {
       if (!requireAdmin(req, res, shouldSendBody)) {
         return true;
       }
+      if (!['GET', 'HEAD', 'POST'].includes(req.method || 'GET')) {
+        res.setHeader('Allow', 'GET, HEAD, POST');
+        sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
+        return true;
+      }
       if (req.method === 'POST') {
         const payload = await readJsonBody(req);
         const game = sessionStore.createGame(payload);
@@ -2143,7 +2218,12 @@ function createBackend(options) {
       if (!requireAdmin(req, res, shouldSendBody)) {
         return true;
       }
-      const payload = req.method === 'POST' ? await readJsonBody(req) : {};
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST');
+        sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
+        return true;
+      }
+      const payload = await readJsonBody(req);
       const game = sessionStore.duplicateGame(adminDuplicateMatch[1], payload);
       sendApiJson(res, game ? 201 : 404, game ? { game: buildGameCatalogEntry(game, sessionStore.ensureSession('demo-session'), apiBase, versionedApiBase) } : { error: 'Game not found.' }, shouldSendBody);
       return true;
@@ -2168,6 +2248,11 @@ function createBackend(options) {
     const adminPublishMatch = pathname.match(new RegExp(`^${versionedApiBasePattern}\\/admin\\/games\\/(\\d+)\\/publish$`));
     if (adminPublishMatch) {
       if (!requireAdmin(req, res, shouldSendBody)) {
+        return true;
+      }
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST');
+        sendApiJson(res, 405, { error: 'Method Not Allowed' }, shouldSendBody);
         return true;
       }
       const game = sessionStore.publishGame(adminPublishMatch[1]);
@@ -2203,13 +2288,24 @@ function createBackend(options) {
       if (pathname !== '/admin' && pathname !== '/admin/' && pathname !== '/admin/index.html') {
         return false;
       }
+      if (!adminEnabled) {
+        res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(shouldSendBody ? 'Admin disabled until ACTION_MONEY_SLOT_ADMIN_TOKEN is configured.' : undefined);
+        return true;
+      }
       if (parseQueryParams(req.url || '/').token !== adminToken) {
         res.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end(shouldSendBody ? 'Admin token required. Use /admin?token=YOUR_TOKEN.' : undefined);
         return true;
       }
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      res.end(shouldSendBody ? createAdminPanelHtml({ adminToken, versionedApiBase }) : undefined);
+      const adminSessionId = crypto.randomUUID();
+      adminSessions.add(adminSessionId);
+      res.writeHead(200, {
+        'Cache-Control': 'no-store',
+        'Content-Type': 'text/html; charset=utf-8',
+        'Set-Cookie': `ams_admin_session=${adminSessionId}; HttpOnly; SameSite=Strict; Path=/`
+      });
+      res.end(shouldSendBody ? createAdminPanelHtml({ versionedApiBase }) : undefined);
       return true;
     },
     handleUpgrade(req, socket, head) {

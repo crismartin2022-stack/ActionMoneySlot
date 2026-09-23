@@ -15,11 +15,18 @@ const contentJsonPath = path.join(rootDir, 'ActionMoneyEGT', 'html5', 'content.j
 const gptsPath = path.join(rootDir, 'ActionMoneyEGT', 'html5', 'gpts.min.js');
 const gameConfigPath = path.join(rootDir, 'ActionMoneyEGT', 'html5', 'games', 'ActionMoneySlot', 'AMJSlot', 'Config.js');
 const {
+  buildDefaultMathConfig,
+  createRngState,
+  simulateRtp,
+  spin
+} = require('./original-slot-engine');
+const {
   DEFAULT_ENTRYPOINT,
   buildRuntimeConfig,
   createServer,
   inferSameOriginRuntimeConfig
 } = require('./start-server');
+const tinyPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+s9xkAAAAASUVORK5CYII=';
 
 function httpRequest(port, pathname, options = {}) {
   return new Promise((resolve, reject) => {
@@ -41,7 +48,13 @@ function httpRequest(port, pathname, options = {}) {
       });
     });
 
-    request.on('error', reject);
+    request.on('error', (error) => {
+      if (options.allowError) {
+        resolve({ error });
+        return;
+      }
+      reject(error);
+    });
     if (options.body) {
       request.write(options.body);
     }
@@ -64,6 +77,10 @@ async function createWebSocketSession(port) {
 
 async function nextApplicationFrame(socket) {
   return new Promise((resolve, reject) => {
+    const onError = (error) => {
+      socket.off('message', onMessage);
+      reject(error);
+    };
     const onMessage = (payload) => {
       const text = String(payload || '');
       if (text === '1::') {
@@ -71,14 +88,16 @@ async function nextApplicationFrame(socket) {
         return;
       }
       try {
+        socket.off('error', onError);
         resolve(parseJsonFrame(text));
       } catch (error) {
+        socket.off('error', onError);
         reject(error);
       }
     };
 
     socket.once('message', onMessage);
-    socket.once('error', reject);
+    socket.once('error', onError);
   });
 }
 
@@ -182,6 +201,8 @@ function findGameLoader(loaders, gameName) {
 }
 
 async function main() {
+  const originalAdminToken = process.env.ACTION_MONEY_SLOT_ADMIN_TOKEN;
+  process.env.ACTION_MONEY_SLOT_ADMIN_TOKEN = 'test-admin-token';
   const syntaxChecks = [serverScript, backendScript, gameConfigPath].map((scriptPath) => spawnSync(process.execPath, ['--check', scriptPath], {
     cwd: rootDir,
     encoding: 'utf8'
@@ -246,6 +267,45 @@ async function main() {
   assert.strictEqual(typeof evaluatedBaseSlot.Config, 'function', 'Config.js should export the config constructor on com.egt.baseslot.');
   assert.strictEqual(evaluatedBaseSlot.buildTime, 1561035489401, 'Config.js should set buildTime on the existing baseslot namespace.');
 
+  const winningMathConfig = buildDefaultMathConfig({
+    reels: Array.from({ length: 5 }, () => [9, 9, 9, 9]),
+    freeSpinAwards: { 15: 12 },
+    bonusAwards: {}
+  });
+  const winningSpin = spin(winningMathConfig, createRngState(1n), {
+    previousState: {},
+    denomination: 3,
+    lines: 5,
+    betPerLine: 3
+  });
+  assert.strictEqual(winningSpin.freeSpinsAwarded, 12);
+  assert.strictEqual(winningSpin.remainingFreeSpins, 12);
+
+  const bonusMathConfig = buildDefaultMathConfig({
+    reels: Array.from({ length: 5 }, () => [10, 10, 10, 10]),
+    bonusAwards: { 15: { multiplier: 6, respins: 3 } },
+    freeSpinAwards: {}
+  });
+  const bonusSpin = spin(bonusMathConfig, createRngState(2n), {
+    previousState: {},
+    denomination: 5,
+    lines: 5,
+    betPerLine: 5
+  });
+  assert.strictEqual(bonusSpin.bonusWin, 150);
+  assert.strictEqual(bonusSpin.respinsAwarded, 3);
+
+  const rtpSimulation = simulateRtp(buildDefaultMathConfig(), {
+    seed: 3n,
+    spins: 250,
+    denomination: 3,
+    lines: 5,
+    betPerLine: 3
+  });
+  assert.strictEqual(rtpSimulation.spins, 250);
+  assert(rtpSimulation.totalBet > 0);
+  assert(rtpSimulation.rtp >= 0);
+
   const runtimeConfig = buildRuntimeConfig({
     ACTION_MONEY_SLOT_SSL_HOST: 'false',
     ACTION_MONEY_SLOT_TOKEN: 'example-token',
@@ -265,6 +325,7 @@ async function main() {
     assert.strictEqual(health.statusCode, 200);
     assert(health.body.includes('"ok":true'));
     assert(health.body.includes('"apiBase":"/api"'));
+    assert(health.body.includes('"versionedApiBase":"/api/v1"'));
 
     const root = await httpRequest(port, '/');
     assert.strictEqual(root.statusCode, 302);
@@ -302,6 +363,28 @@ async function main() {
     const gamePayload = JSON.parse(gameDetails.body).game;
     assert.strictEqual(gamePayload.settings.numReelCards, 3);
 
+    const versionedGamesResponse = await httpRequest(port, '/api/v1/games');
+    assert.strictEqual(versionedGamesResponse.statusCode, 200);
+    const versionedGamesPayload = JSON.parse(versionedGamesResponse.body);
+    assert.strictEqual(versionedGamesPayload.games[0].configUrl, '/api/v1/games/1/config');
+
+    const versionedConfigResponse = await httpRequest(port, '/api/v1/games/1/config');
+    assert.strictEqual(versionedConfigResponse.statusCode, 200);
+    const versionedConfigPayload = JSON.parse(versionedConfigResponse.body);
+    assert.strictEqual(versionedConfigPayload.gameIdentificationNumber, 1);
+    assert.strictEqual(versionedConfigPayload.mathConfig.layout.mode, 'lines');
+
+    const rtpResponse = await httpRequest(port, '/api/v1/games/1/rtp', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ spins: 300, seed: '42' })
+    });
+    assert.strictEqual(rtpResponse.statusCode, 200);
+    const rtpPayload = JSON.parse(rtpResponse.body);
+    assert.strictEqual(rtpPayload.simulation.spins, 300);
+
     const invalidGamesMethod = await httpRequest(port, '/api/games', { method: 'POST' });
     assert.strictEqual(invalidGamesMethod.statusCode, 405);
     assert.strictEqual(invalidGamesMethod.headers.allow, 'GET, HEAD');
@@ -331,6 +414,10 @@ async function main() {
     assert(sessionsPayload.sessions.some((session) => session.id === 'demo-session'));
     assert(sessionsPayload.sessions.some((session) => session.id === createdSessionPayload.session.id));
 
+    const versionedBalanceResponse = await httpRequest(port, `/api/v1/sessions/${encodeURIComponent(createdSessionPayload.session.id)}/balance`);
+    assert.strictEqual(versionedBalanceResponse.statusCode, 200);
+    assert.strictEqual(JSON.parse(versionedBalanceResponse.body).currency, 'EUR');
+
     const selectedGameResponse = await httpRequest(port, `/api/sessions/${encodeURIComponent(createdSessionPayload.session.id)}/select-game`, {
       method: 'POST',
       headers: {
@@ -355,6 +442,178 @@ async function main() {
     const invalidBalanceMethod = await httpRequest(port, `/api/sessions/${encodeURIComponent(createdSessionPayload.session.id)}/balance`);
     assert.strictEqual(invalidBalanceMethod.statusCode, 405);
     assert.strictEqual(invalidBalanceMethod.headers.allow, 'POST');
+
+    const adminRejected = await httpRequest(port, '/admin');
+    assert.strictEqual(adminRejected.statusCode, 200);
+    assert(adminRejected.body.includes('ActionMoneySlot Admin Login'));
+
+    const adminSessionResponse = await httpRequest(port, '/admin/session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ token: 'test-admin-token' })
+    });
+    assert.strictEqual(adminSessionResponse.statusCode, 200);
+    const adminSessionPayload = JSON.parse(adminSessionResponse.body);
+    assert.strictEqual(typeof adminSessionPayload.csrfToken, 'string');
+    const adminCookie = adminSessionResponse.headers['set-cookie'][0].split(';')[0];
+
+    const adminPanel = await httpRequest(port, '/admin', {
+      headers: {
+        Cookie: adminCookie
+      }
+    });
+    assert.strictEqual(adminPanel.statusCode, 200);
+    assert(adminPanel.body.includes('ActionMoneySlot Admin'));
+
+    const createApiKeyResponse = await httpRequest(port, '/api/v1/api-keys', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Token': 'test-admin-token'
+      },
+      body: JSON.stringify({ label: 'integration-a' })
+    });
+    assert.strictEqual(createApiKeyResponse.statusCode, 201);
+    const createApiKeyPayload = JSON.parse(createApiKeyResponse.body).apiKey;
+    assert(createApiKeyPayload.token.startsWith('ams_'));
+
+    const integrationCatalogResponse = await httpRequest(port, '/api/v1/integrations/session-catalog', {
+      headers: {
+        'X-API-Key': createApiKeyPayload.token
+      }
+    });
+    assert.strictEqual(integrationCatalogResponse.statusCode, 200);
+    assert(Array.isArray(JSON.parse(integrationCatalogResponse.body).games));
+
+    const listApiKeysResponse = await httpRequest(port, '/api/v1/api-keys', {
+      headers: {
+        'X-Admin-Token': 'test-admin-token'
+      }
+    });
+    assert.strictEqual(listApiKeysResponse.statusCode, 200);
+    assert(JSON.parse(listApiKeysResponse.body).apiKeys.some((entry) => entry.label === 'integration-a'));
+
+    const uploadImageResponse = await httpRequest(port, '/api/v1/images', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Token': 'test-admin-token'
+      },
+      body: JSON.stringify({
+        gameIdentificationNumber: 1,
+        fileName: 'demo.png',
+        mimeType: 'image/png',
+        contentBase64: tinyPngBase64
+      })
+    });
+    assert.strictEqual(uploadImageResponse.statusCode, 201);
+    const uploadedImage = JSON.parse(uploadImageResponse.body).image;
+    assert(uploadedImage.url.includes('/api/v1/images/'));
+
+    const imageContentResponse = await httpRequest(port, uploadedImage.url);
+    assert.strictEqual(imageContentResponse.statusCode, 200);
+    assert.strictEqual(imageContentResponse.headers['content-type'], 'image/png');
+    assert.strictEqual(Buffer.from(imageContentResponse.body, 'utf8').length > 0, true);
+
+    const imageUpdateResponse = await httpRequest(port, `/api/v1/images/${encodeURIComponent(uploadedImage.id)}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Token': 'test-admin-token'
+      },
+      body: JSON.stringify({
+        gameIdentificationNumber: 1,
+        fileName: 'demo.png',
+        mimeType: 'image/png',
+        contentBase64: tinyPngBase64
+      })
+    });
+    assert.strictEqual(imageUpdateResponse.statusCode, 200);
+
+    const listImagesResponse = await httpRequest(port, '/api/v1/images');
+    assert.strictEqual(listImagesResponse.statusCode, 200);
+    assert(JSON.parse(listImagesResponse.body).images.some((image) => image.id === uploadedImage.id));
+
+    const duplicateGameResponse = await httpRequest(port, '/api/v1/admin/games/1/duplicate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Token': 'test-admin-token'
+      },
+      body: JSON.stringify({ displayName: 'Action Money Slot Copy' })
+    });
+    assert.strictEqual(duplicateGameResponse.statusCode, 201);
+    const duplicatedGame = JSON.parse(duplicateGameResponse.body).game;
+    assert.strictEqual(duplicatedGame.displayName, 'Action Money Slot Copy');
+
+    const duplicateGameMethodResponse = await httpRequest(port, '/api/v1/admin/games/1/duplicate', {
+      headers: {
+        'X-Admin-Token': 'test-admin-token'
+      }
+    });
+    assert.strictEqual(duplicateGameMethodResponse.statusCode, 405);
+
+    const updateGameConfigResponse = await httpRequest(port, '/api/v1/admin/games/1/config', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Token': 'test-admin-token'
+      },
+      body: JSON.stringify({
+        displayName: 'Original Action Money Slot',
+        status: 'draft',
+        mathConfig: {
+          displayName: 'Original Action Money Slot',
+          layout: { mode: 'lines', reels: 5, rows: 3 },
+          denominations: [3, 5, 10, 20],
+          bets: [1, 2, 5, 10, 20]
+        }
+      })
+    });
+    assert.strictEqual(updateGameConfigResponse.statusCode, 200);
+
+    const publishGameResponse = await httpRequest(port, '/api/v1/admin/games/1/publish', {
+      method: 'POST',
+      headers: {
+        'X-Admin-Token': 'test-admin-token'
+      }
+    });
+    assert.strictEqual(publishGameResponse.statusCode, 200);
+
+    const publishGameMethodResponse = await httpRequest(port, '/api/v1/admin/games/1/publish', {
+      headers: {
+        'X-Admin-Token': 'test-admin-token'
+      }
+    });
+    assert.strictEqual(publishGameMethodResponse.statusCode, 405);
+
+    const mediumLargeBodyResponse = await httpRequest(port, '/api/v1/sessions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        playerName: 'x'.repeat(1024 * 1024 + 128),
+        balance: 1000,
+        currency: 'EUR',
+        language: 'en'
+      })
+    });
+    assert.strictEqual(mediumLargeBodyResponse.statusCode, 201);
+
+    const tooLargeBodyResponse = await httpRequest(port, '/api/v1/sessions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      allowError: true,
+      body: JSON.stringify({
+        playerName: 'x'.repeat(4 * 1024 * 1024 + 128)
+      })
+    });
+    assert(tooLargeBodyResponse.statusCode === 400 || tooLargeBodyResponse.error);
 
     let expectedPersistedBalance = updatedSession.balance;
     const socket = await createWebSocketSession(port);
@@ -407,6 +666,17 @@ async function main() {
       assert.deepStrictEqual(settingsResponse.complex.bets, [1, 2, 5, 10, 20]);
       assert.strictEqual(settingsResponse.complex.numReels, 5);
 
+       const configurationResponse = await sendWsRequest(socket, {
+        messageId: 'r-r_configuration',
+        command: 'configuration',
+        qName: 'jServer.AMJSlot.configuration',
+        sessionKey: 'LOCAL:test',
+        gameIdentificationNumber: 1,
+        sessionId
+      });
+      assert.strictEqual(configurationResponse.command, 'configuration');
+      assert.strictEqual(configurationResponse.msg, 'success');
+
       const subscribeResponse = await sendWsRequest(socket, {
         messageId: 'r-r_subscribe',
         command: 'subscribe',
@@ -442,6 +712,34 @@ async function main() {
       assert(betResponse.balance >= 0);
       expectedPersistedBalance = betResponse.balance;
 
+      const aliasSpinResponse = await sendWsRequest(socket, {
+        messageId: 'r-r_spin',
+        command: 'spin',
+        qName: 'jServer.AMJSlot.spin',
+        sessionKey: 'LOCAL:test',
+        gameIdentificationNumber: 1,
+        sessionId,
+        spin: {
+          bet: 3,
+          denomination: 3,
+          lines: 5
+        }
+      });
+      assert.strictEqual(aliasSpinResponse.command, 'result');
+      assert.strictEqual(aliasSpinResponse.msg, 'success');
+      assert(aliasSpinResponse.complex.balanceUpdate.after >= 0);
+      expectedPersistedBalance = aliasSpinResponse.balance;
+
+      const balanceWsResponse = await sendWsRequest(socket, {
+        messageId: 'r-r_balance',
+        command: 'balance',
+        qName: 'jServer.gameManager.balance',
+        sessionKey: 'LOCAL:test',
+        sessionId
+      });
+      assert.strictEqual(balanceWsResponse.command, 'balanceUpdate');
+      assert.strictEqual(balanceWsResponse.balance, expectedPersistedBalance);
+
       const invalidBetResponse = await sendWsRequest(socket, {
         messageId: 'r-r_invalid_bet',
         command: 'bet',
@@ -476,7 +774,34 @@ async function main() {
     const persistedSession = JSON.parse(persistedSessionResponse.body).session;
     assert.strictEqual(persistedSession.balance, expectedPersistedBalance);
     assert.strictEqual(persistedSession.selectedGameId, 1);
+
+    const spinHistoryResponse = await httpRequest(reopenedPort, `/api/v1/sessions/${encodeURIComponent(createdSessionPayload.session.id)}/spins`, {
+      headers: {
+        'X-Admin-Token': 'test-admin-token'
+      }
+    });
+    assert.strictEqual(spinHistoryResponse.statusCode, 200);
+    const spinHistoryPayload = JSON.parse(spinHistoryResponse.body);
+    assert(spinHistoryPayload.spins.length >= 2);
+    assert(typeof spinHistoryPayload.spins[0].rngBefore === 'string');
+
+    const deleteImageResponse = await httpRequest(reopenedPort, `/api/v1/images/${encodeURIComponent(uploadedImage.id)}`, {
+      method: 'DELETE',
+      headers: {
+        'X-Admin-Token': 'test-admin-token'
+      }
+    });
+    assert.strictEqual(deleteImageResponse.statusCode, 200);
+
+    const revokeApiKeyResponse = await httpRequest(reopenedPort, `/api/v1/api-keys/${encodeURIComponent(createApiKeyPayload.id)}`, {
+      method: 'DELETE',
+      headers: {
+        'X-Admin-Token': 'test-admin-token'
+      }
+    });
+    assert.strictEqual(revokeApiKeyResponse.statusCode, 200);
   } finally {
+    process.env.ACTION_MONEY_SLOT_ADMIN_TOKEN = originalAdminToken;
     if (server) {
       await closeServer(server);
     }

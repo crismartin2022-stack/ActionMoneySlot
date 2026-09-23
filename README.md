@@ -13,7 +13,7 @@ Backend propio y original para demo de slot, compatible con el frontend EGT exis
 - conserva la API heredada en `/api`
 - expone la API versionada en `/api/v1`
 - persiste sesiones, juegos, spins, imágenes y API keys en SQLite usando `node:sqlite`
-- incluye un panel administrativo protegido en `/admin?token=...`
+- incluye un panel administrativo protegido en `/admin`
 - ejecuta un motor matemático propio configurable con historial auditable de seeds y resultados
 
 ## Requisitos
@@ -38,8 +38,15 @@ http://localhost:8080
 Panel admin:
 
 ```text
-http://localhost:8080/admin?token=<ACTION_MONEY_SLOT_ADMIN_TOKEN>
+http://localhost:8080/admin
 ```
+
+Flujo:
+
+1. abrir `/admin`
+2. introducir `ACTION_MONEY_SLOT_ADMIN_TOKEN`
+3. el backend crea una sesión admin con cookie httpOnly
+4. las mutaciones del panel envían un token CSRF de sesión
 
 ## Arquitectura
 

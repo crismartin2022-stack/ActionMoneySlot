@@ -434,6 +434,23 @@ function detectImageMime(buffer) {
   return null;
 }
 
+function buildApiKeyToken() {
+  const lookupKey = crypto.randomBytes(8).toString('hex');
+  const secret = crypto.randomBytes(18).toString('hex');
+  return {
+    lookupKey,
+    token: `ams_${lookupKey}_${secret}`
+  };
+}
+
+function extractApiKeyLookup(token) {
+  const parts = String(token || '').split('_');
+  if (parts.length < 3 || parts[0] !== 'ams') {
+    return '';
+  }
+  return parts[1];
+}
+
 function serializePermissions(permissions) {
   return JSON.stringify(Array.isArray(permissions) ? permissions : ['read', 'write']);
 }
@@ -613,6 +630,7 @@ class SessionStore {
       CREATE TABLE IF NOT EXISTS api_keys (
         id TEXT PRIMARY KEY,
         label TEXT NOT NULL,
+        lookup_key TEXT NOT NULL UNIQUE,
         key_hash TEXT NOT NULL UNIQUE,
         permissions_json TEXT NOT NULL,
         active INTEGER NOT NULL DEFAULT 1,
@@ -621,6 +639,13 @@ class SessionStore {
         revoked_at TEXT
       );
     `);
+    try {
+      this.db.exec('ALTER TABLE api_keys ADD COLUMN lookup_key TEXT');
+    } catch (error) {
+      if (!String(error.message || '').includes('duplicate column name')) {
+        throw error;
+      }
+    }
   }
 
   prepareStatements() {
@@ -693,10 +718,11 @@ class SessionStore {
       selectImageById: this.db.prepare('SELECT * FROM images WHERE id = ?'),
       deleteImage: this.db.prepare('DELETE FROM images WHERE id = ?'),
       insertApiKey: this.db.prepare(`
-        INSERT INTO api_keys (id, label, key_hash, permissions_json, active, last_used_at, created_at, revoked_at)
-        VALUES (?, ?, ?, ?, 1, NULL, ?, NULL)
+        INSERT INTO api_keys (id, label, lookup_key, key_hash, permissions_json, active, last_used_at, created_at, revoked_at)
+        VALUES (?, ?, ?, ?, ?, 1, NULL, ?, NULL)
       `),
       selectApiKeys: this.db.prepare('SELECT * FROM api_keys ORDER BY created_at DESC'),
+      selectActiveApiKeyByLookup: this.db.prepare('SELECT * FROM api_keys WHERE lookup_key = ? AND active = 1 LIMIT 1'),
       touchApiKey: this.db.prepare('UPDATE api_keys SET last_used_at = ? WHERE id = ?'),
       revokeApiKey: this.db.prepare('UPDATE api_keys SET active = 0, revoked_at = ? WHERE id = ?')
     };
@@ -1110,18 +1136,19 @@ class SessionStore {
 
   createApiKey(payload = {}) {
     const id = crypto.randomUUID();
-    const plainText = `ams_${crypto.randomBytes(18).toString('hex')}`;
+    const generated = buildApiKeyToken();
     const now = new Date().toISOString();
     this.statements.insertApiKey.run(
       id,
       String(payload.label || 'integration'),
-      hashSecret(plainText),
+      generated.lookupKey,
+      hashSecret(generated.token),
       serializePermissions(payload.permissions),
       now
     );
     return {
       id,
-      token: plainText,
+      token: generated.token,
       label: String(payload.label || 'integration'),
       permissions: Array.isArray(payload.permissions) ? payload.permissions : ['read', 'write'],
       createdAt: now
@@ -1150,9 +1177,15 @@ class SessionStore {
     if (!token) {
       return null;
     }
-    const row = this.statements.selectApiKeys.all()
-      .find((entry) => Boolean(entry.active) && verifyHashedSecret(token, entry.key_hash));
+    const lookupKey = extractApiKeyLookup(token);
+    if (!lookupKey) {
+      return null;
+    }
+    const row = this.statements.selectActiveApiKeyByLookup.get(lookupKey);
     if (!row) {
+      return null;
+    }
+    if (!verifyHashedSecret(token, row.key_hash)) {
       return null;
     }
     this.statements.touchApiKey.run(new Date().toISOString(), row.id);
@@ -2209,6 +2242,9 @@ function createBackend(options) {
 
     const spinHistoryMatch = pathname.match(new RegExp(`^${versionedApiBasePattern}\\/sessions\\/([^/]+)\\/spins$`));
     if (spinHistoryMatch) {
+      if (!requireAdmin(req, res, shouldSendBody)) {
+        return true;
+      }
       const sessionId = decodeURIComponent(spinHistoryMatch[1]);
       if (!sessionStore.getSession(sessionId)) {
         sendApiJson(res, 404, { error: 'Session not found.' }, shouldSendBody);

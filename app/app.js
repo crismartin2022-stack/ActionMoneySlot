@@ -81,9 +81,16 @@
       ...options
     });
     const text = await response.text();
-    const data = text ? JSON.parse(text) : {};
+    let data = {};
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (error) {
+        data = { raw: text };
+      }
+    }
     if (!response.ok) {
-      throw new Error(data.error || ('Request failed: ' + response.status));
+      throw new Error(data.error || data.raw || ('Request failed: ' + response.status));
     }
     return data;
   }
@@ -166,14 +173,16 @@
 
   function renderReelsFromState(currentState) {
     const reels = Array.isArray(currentState && currentState.reels) ? currentState.reels : [];
-    const reelCount = Number((state.selectedGame && state.selectedGame.mathConfig && state.selectedGame.mathConfig.layout && state.selectedGame.mathConfig.layout.reels) || 5);
+    const layout = state.selectedGame && state.selectedGame.mathConfig && state.selectedGame.mathConfig.layout;
+    const reelCount = Number((layout && layout.reels) || 5);
+    const rowCount = Number((layout && layout.rows) || 3);
     elements.reels.style.gridTemplateColumns = 'repeat(' + reelCount + ', minmax(88px, 1fr))';
     elements.reels.innerHTML = '';
     if (!reels.length) {
       for (let columnIndex = 0; columnIndex < reelCount; columnIndex += 1) {
         const column = document.createElement('div');
         column.className = 'reel-column';
-        for (let rowIndex = 0; rowIndex < 3; rowIndex += 1) {
+        for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
           const cell = document.createElement('div');
           cell.className = 'symbol-cell';
           cell.textContent = '—';

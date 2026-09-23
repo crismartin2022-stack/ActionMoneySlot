@@ -15,8 +15,15 @@
     }
     const response = await fetch(path, { credentials: 'same-origin', ...options, headers });
     const text = await response.text();
-    const data = text ? JSON.parse(text) : {};
-    if (!response.ok) throw new Error(data.error || ('Request failed: ' + response.status));
+    let data = {};
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (error) {
+        data = { raw: text };
+      }
+    }
+    if (!response.ok) throw new Error(data.error || data.raw || ('Request failed: ' + response.status));
     return data;
   }
 
@@ -168,13 +175,18 @@
   async function runRtp() {
     const game = getSelectedGame();
     if (!game) return;
+    const paylineSource = JSON.parse(document.getElementById('paylines-input').value || '[]');
+    const layoutMode = document.getElementById('layout-mode').value;
+    const lines = layoutMode === 'ways'
+      ? Number(document.getElementById('layout-reels').value)
+      : Math.max(1, Array.isArray(paylineSource) ? paylineSource.length : 1);
     const payload = await call(config.apiBase + '/games/' + game.gameIdentificationNumber + '/rtp', {
       method: 'POST',
       body: JSON.stringify({
         spins: Number(document.getElementById('rtp-spins').value),
         denomination: Number(document.getElementById('denominations-input').value.split(',')[0].trim() || 1),
         betPerLine: Number(document.getElementById('bets-input').value.split(',')[0].trim() || 1),
-        lines: Number(document.getElementById('layout-reels').value)
+        lines
       })
     });
     document.getElementById('rtp-result').textContent = JSON.stringify(payload.simulation, null, 2);

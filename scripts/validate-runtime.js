@@ -406,6 +406,19 @@ async function main() {
     assert.strictEqual(rtpHistoryResponse.statusCode, 200);
     assert(JSON.parse(rtpHistoryResponse.body).runs.length >= 1);
 
+    const unauthorizedRtpHistoryResponse = await httpRequest(port, '/api/v1/games/1/rtp/history');
+    assert.strictEqual(unauthorizedRtpHistoryResponse.statusCode, 401);
+
+    const invalidRtpHistoryMethodResponse = await httpRequest(port, '/api/v1/games/1/rtp/history', {
+      method: 'POST',
+      headers: {
+        'X-Admin-Token': 'test-admin-token',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ spins: 10 })
+    });
+    assert.strictEqual(invalidRtpHistoryMethodResponse.statusCode, 405);
+
     const invalidGamesMethod = await httpRequest(port, '/api/games', { method: 'POST' });
     assert.strictEqual(invalidGamesMethod.statusCode, 405);
     assert.strictEqual(invalidGamesMethod.headers.allow, 'GET, HEAD');

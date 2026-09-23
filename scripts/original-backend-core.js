@@ -2070,6 +2070,7 @@ function createBackend(options) {
       adminSessions.delete(sessionId);
       return null;
     }
+    session.lastSeenAt = Date.now();
     return session;
   }
 
